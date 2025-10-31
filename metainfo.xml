@@ -1,0 +1,66 @@
+<?xml version='1.0' encoding='utf-8'?>
+<component type="desktop-application">
+    <id>io.github.kirukomaru11.Cardboard</id>
+    <developer id="io.github.kirukomaru11">
+        <name>きるこ丸11号</name>
+    </developer>
+    <name>Cardboard</name>
+    <summary>Browse art on boorus</summary>
+    <description>
+        <p>Cardboard can be used to browse different boorus, download posts, and also keep a local favorites collection across all of them, while also supporting adding individual links for some services and files</p>
+        <p>Some features:</p>
+        <ul>
+          <li>Adaptive UI and post color theming</li>
+          <li>AI autotag (uses Danbooru)</li>
+          <li>Search autocomplete (uses Danbooru)</li>
+          <li>Editing posts locally and viewing information about them</li>
+          <li>Download posts</li>
+          <li>Bookmark and blacklist tags</li>
+          <li>Drop a file to add it to favorites</li>
+          <li>Tabs and middle click to open tag/post in a new tab</li>
+          <li>Restore tabs on start</li>
+        </ul>
+    </description>
+    <branding>
+        <color type="primary" scheme_preference="light">#b5835a</color>
+        <color type="primary" scheme_preference="dark">#865e3c</color>
+    </branding>
+    <supports>
+        <control>pointing</control>
+        <control>keyboard</control>
+        <control>touch</control>
+    </supports>
+    <launchable type="desktop-id">io.github.kirukomaru11.Cardboard.desktop</launchable>
+    <icon type="stock">io.github.kirukomaru11.Cardboard</icon>
+    <categories>
+        <category>AudioVideo</category>
+        <category>Graphics</category>
+        <category>Network</category>
+    </categories>
+    <keywords>
+      <keyword>GTK</keyword>
+      <keyword>GNOME</keyword>
+      <keyword>Booru</keyword>
+      <keyword>Browser</keyword>
+      <keyword>Favorites</keyword>
+      <keyword>Tags</keyword>
+    </keywords>
+    <provides>
+        <binary>cardboard</binary>
+    </provides>
+    <content_rating type="oars-1.1" />
+    <metadata_license>MIT</metadata_license>
+    <project_license>MIT</project_license>
+    <url type="bugtracker">https://github.com/kirukomaru11/Cardboard/issues</url>
+    <url type="homepage">https://github.com/kirukomaru11/Cardboard</url>
+    <url type="vcs-browser">https://github.com/kirukomaru11/Cardboard</url>
+    <releases>
+        <release version="1.0" date="2025-10-31">
+            <description>
+                <ul>
+                    <li>First release</li>
+                </ul>
+            </description>
+        </release>
+    </releases>
+</component>
