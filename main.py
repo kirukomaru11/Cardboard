@@ -50,7 +50,7 @@ search text popover row:last-child { margin-bottom: 0px; }
 search text popover row box { border-spacing: 4px; }
 
 sheet,
-toolbarview {
+window {
   transition-property: background;
   transition-duration: 250ms;
   transition-timing-function: ease;
@@ -63,7 +63,7 @@ toolbarview {
   --card-bg-color: rgb(255 255 255 / 4%);
 }
 .colored sheet,
-.colored toolbarview {
+.colored window {
   background: linear-gradient(
       to bottom right,
       color-mix(in srgb, var(--color-1) 45%, transparent),
