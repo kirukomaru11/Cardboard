@@ -62,8 +62,8 @@ window {
   --popover-bg-color: color-mix(in srgb, var(--color-2), var(--window-bg-color) 60%);
   --card-bg-color: rgb(255 255 255 / 4%);
 }
-.colored sheet,
-.colored window {
+.colored,
+.colored sheet {
   background: linear-gradient(
       to bottom right,
       color-mix(in srgb, var(--color-1) 45%, transparent),
