@@ -62,23 +62,11 @@ window {
   --popover-bg-color: color-mix(in srgb, var(--color-2), var(--window-bg-color) 60%);
   --card-bg-color: rgb(255 255 255 / 4%);
 }
-.colored,
-.colored sheet {
-  background: linear-gradient(
-      to bottom right,
-      color-mix(in srgb, var(--color-1) 45%, transparent),
-      transparent
-    ),
-    linear-gradient(
-      to bottom left,
-      color-mix(in srgb, var(--color-2) 45%, transparent),
-      transparent
-    ),
-    linear-gradient(
-      to top,
-      color-mix(in srgb, var(--color-3) 45%, transparent),
-      transparent
-    ),
+.colored sheet,
+.colored {
+  background: linear-gradient(to bottom right, color-mix(in srgb, var(--color-1) 45%, transparent), transparent),
+    linear-gradient(to bottom left, color-mix(in srgb, var(--color-2) 45%, transparent), transparent),
+    linear-gradient(to top, color-mix(in srgb, var(--color-3) 45%, transparent), transparent),
     var(--window-bg-color);
 }
 .colored controls.toolbar.card,
@@ -883,7 +871,7 @@ def sync_post(*_):
     p = edit.p
     for l in (editable, dates):
         for i in l:
-            w, prop = i if isinstance(i, Gtk.Calendar) else i[0], "date" if isinstance(i, Gtk.Calendar) else i[1]
+            w, prop = i.calendar if hasattr(i, "calendar") else i[0], "date" if hasattr(i, "calendar") else i[1]
             if not w.get_ancestor(Adw.PreferencesRow).get_mapped(): continue
             v = w.get_property(prop)
             names = w.get_name().split(" || ")
@@ -912,7 +900,10 @@ group = Adw.PreferencesGroup(separate_rows=True)
 ai_tag_button = Adw.ButtonRow(title="AI Autotag", css_classes=("button", "activatable", "suggested-action"), tooltip_text="Upload to Danbooru AI Tagger")
 def ai_ai(b):
     form_data = Soup.Multipart.new("multipart/form-data")
-    form_data.append_form_file("file", "image.png", "image/png", edit.p.get_child().get_paintable().get_current_image().save_to_png_bytes())
+    picture = edit.p
+    while not hasattr(picture, "get_paintable"):
+        picture = picture.get_child()
+    form_data.append_form_file("file", "image.png", "image/png", picture.get_paintable().get_current_image().save_to_png_bytes())
     form_data.append_form_string("format", "json")
     mes = Soup.Message.new_from_multipart("https://autotagger.donmai.us/evaluate", form_data)   
     b = app.session.send_and_read(mes)
