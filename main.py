@@ -336,11 +336,13 @@ def chan_add(b, url):
     if "warosu" in url:
         p = url.rsplit("/", 1)[-1].split("#p")[-1]
         file_url = b.get_data().decode("utf-8").split(f"alt={p}")[0].rsplit("href=", 1)[1].split(">")[0]
-        thumbnail_url = file_url.replace("img", "thumb").rsplit("/", 1)[0] + "/" + file_url.rsplit("/", 1)[-1].rsplit(".", 1)[0] + "s.jpg"
-    else:
-        file_url = url.replace("thumb", "image").replace("s.", ".")
-        thumbnail_url = file_url.replace("image", "thumb").rsplit("/", 1)[0] + "/" + file_url.rsplit("/", 1)[-1].rsplit(".", 1)[0] + "s.jpg"
-    probe(file_url, {"source": url, "preview_url": thumbnail_url, "created_at": int(file_url.rsplit("/", 1)[-1].split(".")[0][:10])})
+        probe(file_url, {"source": url, "preview_url": file_url.replace("img", "thumb").rsplit("/", 1)[0] + "/" + file_url.rsplit("/", 1)[-1].rsplit(".", 1)[0] + "s.jpg", "created_at": int(file_url.rsplit("/", 1)[-1].split(".")[0][:10])})
+    elif "desuarchive.org" in url:
+        p = json(b.get_data().decode("utf-8"))
+        if not p["media"]: return Toast(f"No media in {url}")
+        url = f'https://desuarchive.org/{p["board"]["shortname"]}/thread/{p["thread_num"]}{("#" + p["num"]) if p["num"] != p["thread_num"] else ""}'
+        add_favorite({"file_url": p["media"]["media_link"], "height": int(p["media"]["media_h"]), "width": int(p["media"]["media_h"]), "preview_url": p["media"]["thumb_link"], "hash": p["media"]["media_hash"], "created_at": p["timestamp"],  "updated_at": p["timestamp"], "source": url, "size": int(p["media"]["media_size"])})
+    else: fail_url(url)
 def artstation_add(b, url):
     res = json(b.get_data().decode("utf-8"))
     created_at, updated_at = GLib.DateTime.new_from_iso8601(res["created_at"]).to_utc().to_unix(), GLib.DateTime.new_from_iso8601(res["updated_at"]).to_utc().to_unix()
@@ -369,7 +371,7 @@ def kemono_add(b, url):
         if Gio.content_type_guess(i["name"])[0].startswith(("video", "image")): probe(f'{i["server"]}/data{i["path"]}', {"hash": i["path"].split("/")[-1].split(".")[0], "source": url, "preview_url":f'https://img.kemono.cr/thumbnail/data{i["path"]}', "created_at": created_at, "updated_at": updated_at})
 extra = {"Zerochan": (lambda u: u.startswith("https://www.zerochan.net/") and u.split("/")[-1].isdigit(), lambda u: app.session.send_and_read_async(Soup.Message.new("GET", f"{u}?&json"), GLib.PRIORITY_DEFAULT, None, add_from_url, *(zerochan_add, u))),
         "Twitter": (lambda u: u.replace("https://", "").startswith(("xcancel.com", "twitter.com", "x.com", "nitter.net", "cdn.xcancel.com", "pbs.twimg.com")), lambda u: (url := u.replace("x.com", "nitter.net").replace("xcancel.com", "nitter.net").replace("twitter.com", "nitter.net"), app.session.send_and_read_async((m := Soup.Message.new("GET", url), tuple(m.get_request_headers().append(k, v) for k, v in (("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"), ("Accept-Language", "en-US,en;q=0.5"), ("Sec-Fetch-Dest", "document"))), m)[-1], GLib.PRIORITY_DEFAULT, None, add_from_url, *(twitter_add, url)))),
-        "4chan": (lambda u: u.replace("https://", "").startswith(("boards.4chan.org", "warosu.org", "desu-usergeneratedcontent.xyz")), lambda u: (url := u.replace("boards.4chan", "warosu") if "boards.4chan" in u and u.split("/")[3].startswith(("3", "biz", "cgl", "ck", "diy", "fa", "ic", "jp", "lit", "sci", "vr", "vt")) else u, app.session.send_and_read_async(Soup.Message.new("GET", url), GLib.PRIORITY_DEFAULT, None, add_from_url, *(chan_add, url)))),
+        "4chan": (lambda u: u.replace("https://", "").startswith(("boards.4chan.org", "warosu.org")), lambda u: (url := u.replace("boards.4chan", "warosu") if u.split("/")[3].startswith(("3", "biz", "cgl", "ck", "diy", "fa", "ic", "jp", "lit", "sci", "vr", "vt")) else f'https://desuarchive.org/_/api/chan/post/?board={u.split("/")[3]}&num={u.split("/")[-1].split("#p")[-1]}' if u.split("/")[3].startswith(("a", "aco", "an", "c", "cgl", "co", "d", "fit", "g", "his", "int", "k", "m", "mlp", "mu", "q", "qa", "r9k", "tg", "trash", "vr", "wsg")) else u, app.session.send_and_read_async(Soup.Message.new("GET", url), GLib.PRIORITY_DEFAULT, None, add_from_url, *(chan_add, url)))),
         "Artstation": (lambda u: "artstation.com/artwork/" in u, lambda u: app.session.send_and_read_async(Soup.Message.new("GET", f"{u.replace('artwork', 'projects')}.json"), GLib.PRIORITY_DEFAULT, None, add_from_url, *(artstation_add, u))),
         "Reddit": (lambda u: u.startswith("https://www.reddit.com/r/") and "/comments/" in u, lambda u: app.session.send_and_read_async(Soup.Message.new("GET", u), GLib.PRIORITY_DEFAULT, None, add_from_url, *(reddit_add, u))),
         "Pinterest": (lambda u: "pinterest.com/pin/" in u, lambda u: app.session.send_and_read_async(Soup.Message.new("GET", u), GLib.PRIORITY_DEFAULT, None, add_from_url, *(pinterest_add, u))),
@@ -918,7 +920,6 @@ def apply_colors(*_):
         v = v.get_paintable() if hasattr(v, "get_paintable") else None
     GLib.idle_add(set_colors, v, True)
     return False
-
 for i in app.data["Tabs"]:
     t = Tab(q=i[0], p=i[1], s=i[2])
     view.set_page_pinned(t, i[3])
