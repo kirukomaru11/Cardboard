@@ -1,5 +1,6 @@
 #!/usr/bin/python3
 from json import loads as json
+from re import compile as regex
 
 from AppUtils import *
 
@@ -141,6 +142,7 @@ def fetch_favorite_catalog(queries):
         key_terms = tuple(i for i in terms if ":" in i and len(i.split(":")) == 2)
         terms = tuple(i for i in terms if not i in key_terms)
         key_terms = tuple(i.split(":") for i in key_terms)
+        key_terms = tuple((i[0].replace("regex_", ""), regex(i[1]) if i[0].startswith("regex_") else ratings.index(i[1].title()) if i[0] == "rating" else i[1]) for i in key_terms)
         term_sites = [i.replace("_", " ") for i in query.split(" ") if i.startswith(("-site:", "site:"))]
         if not tuple(i for i in term_sites if i.startswith("site:")):
             term_sites += [i for i in sites if not tuple(it for it in term_sites if it.split(":")[-1] == i)]
@@ -149,10 +151,10 @@ def fetch_favorite_catalog(queries):
             for p in app.data["Favorites"][site]:
                 if not "added" in p:
                     p["added"] = GLib.DateTime.new_now_utc().to_unix()
-                if getattr(preferences, "View Safe Mode").get_active() and not get_property(p, "rating", site): continue
+                if getattr(preferences, "View Safe Mode").get_active() and not get_property(p, "rating", site) == 0: continue
                 if any(t[:1] in get_property(p, "tags", site) for t in terms if t.startswith("-")): continue
                 if not all(t in get_property(p, "tags", site) for t in terms): continue
-                if any(not k[0] in p or str(get_property(p, k[0], site)) != k[1] for k in key_terms): continue
+                if any(not k[0] in p or (not k[1].search(str(get_property(p, k[0], site))) if hasattr(k[1], "search") else str(get_property(p, k[0], site)) != str(k[1])) for k in key_terms): continue
                 catalog.append((p, site))
     if "random" in s:
         k = random_sort
@@ -178,41 +180,40 @@ def fetch_online_catalog(site, queries, page, count=False):
 
 def finish_adding_post(s, r, st):
     b = s.send_and_read_finish(r)
-    if not b: return Toast(f"Couldn't add {url}! Status: {r.get_status()}", use_markup=False)
+    if not b: return Toast(f"Couldn't add {url}! Status: {r.get_status()}")
     p = json(b.get_data().decode("utf-8"))
     p = p["post"] if "post" and "@attributes" in p else p
     p = p[0] if isinstance(p, list) else p
-    if not "file_url" in p or "file_url" in sites[st]["overrides"] and not sites[st]["overrides"]["file_url"][0](p): return Toast(f"Couldn't add {url}: File URL not in post!", use_markup=False)
+    if not "file_url" in p or "file_url" in sites[st]["overrides"] and not sites[st]["overrides"]["file_url"][0](p): return Toast(f"Couldn't add {url}: File URL not in post!")
     p["added"] = GLib.DateTime.new_now_utc().to_unix()
     app.data["Favorites"][st].append(p)
-    Toast(f"{p['id']} added to {st}'s favorites")
+    Toast(f"{p['id']} added to {st}'s favorites", timeout=2)
 def general_add(url):
     if "?" in url and "tags=" in url:
         tags = GLib.Uri.parse_params(url.split("?")[-1], -1, "&", GLib.UriParamsFlags.NONE)["tags"].replace("+", " ")
-        if tags in getattr(preferences, "Bookmarks").tags:
-            Toast(f"{tags} already in bookmarks!")
+        if tags in getattr(preferences, "Bookmarks").tags: Toast(f"{tags} already in bookmarks!")
         else:
             getattr(preferences, "Bookmarks").tags += [tags]
-            Toast(f"{tags} added to bookmarks")
-    else: Toast(f"Couldn't add {url}", use_markup=False)
+            Toast(f"{tags} added to bookmarks", timeout=2)
+    else: Toast(f"Couldn't add {url}")
 def danbooru_add(s, url):
     if "/posts/" in url:
         p_id = url.split("?")[0].split("/posts/")[-1]
-        if [i for i in app.data["Favorites"][s] if i["id"] == p_id]:
+        if tuple(i for i in app.data["Favorites"][s] if i["id"] == p_id):
             return Toast(f"{p_id} already in {s}'s favorites!", timeout=0)
         r = app.session.send_and_read_async(Soup.Message.new("GET", f"{url.split('?')[0]}.json"), GLib.PRIORITY_DEFAULT, None, finish_adding_post, s)
     else: general_add(url)
 def gelbooru_add(s, url):
     if "id=" in url:
         p_id = GLib.Uri.parse_params(url.split("?")[-1], -1, "&", GLib.UriParamsFlags.NONE)["id"]
-        if [i for i in app.data["Favorites"][s] if i["id"] == p_id]:
+        if tuple(i for i in app.data["Favorites"][s] if i["id"] == p_id):
             return Toast(f"{p_id} already in {s}'s favorites!")
         r = app.session.send_and_read_async(Soup.Message.new("GET", sites[s]["fetch_catalog"](f"id:{p_id}", 1)), GLib.PRIORITY_DEFAULT, None, finish_adding_post, s)
     else: general_add(url)
 def moebooru_add(s, url):
     if "/post/show/" in url:
         p_id = url.split("?")[0].split("/post/show/")[-1].split("/")[0]
-        if [i for i in app.data["Favorites"][s] if i["id"] == p_id]:
+        if tuple(i for i in app.data["Favorites"][s] if i["id"] == p_id):
             return Toast(f"{p_id} already in {s}'s favorites!", timeout=0)
         r = app.session.send_and_read_async(Soup.Message.new("GET", sites[s]["fetch_catalog"](f"id:{p_id}", 1)), GLib.PRIORITY_DEFAULT, None, finish_adding_post, s)
     else: general_add(url)
@@ -258,9 +259,8 @@ for i in ("Gelbooru",):
 for i in ("Yande.re", "Konachan", "Sakugabooru"):
     sites[i]["add"] = moebooru_add
     sites[i]["fetch_catalog"] = lambda t, p, _i=i: f"{sites[_i]['url']}/post.json?limit={limit}&page={p}&tags={t + (' rating:general' if getattr(preferences, 'View Safe Mode').get_active() else '')}&json=1" + (sites[_i]["api"]() if "api" in sites[_i] else "")
-    sites[i]["get_catalog"] = lambda c: c[1]
     sites[i]["fetch_count"] = lambda t, _i=i: f"{sites[_i]['url']}/post.xml?tags={t}"
-    sites[i]["get_count"] = lambda c: int(c[0].split('<posts count="')[1].split(' offset="')[0].strip('"'))
+    sites[i]["get_count"] = lambda c: int(xml(c[0]).attrib["count"])
     sites[i]["get_url"] = lambda q, _i=i: f"{sites[_i]['url']}/post?id={q[0]['id']}" if isinstance(q[0], dict) else f"{sites[_i]['url']}/post?page={q[1]}&tags={q[0] + (' rating:general' if getattr(preferences, "View Safe Mode").get_active() else '')}"
     sites[i]["overrides"] = {
         "hash": lambda p: p["md5"],
@@ -277,10 +277,9 @@ for i in sites:
     app.data["Favorites"].setdefault(i, [])
 
 get_md5 = lambda b: (c := GLib.Checksum.new(0), c.update(b.get_data()), c.get_string())[-1]
-fail_url = lambda u, e=None: Toast(f"{u}\nError: {e}" if e else f"\n{u} could not be added!", use_markup=False)
-def probe(url):
-    p = Gio.Subprocess.new(("ffprobe", "-v", "quiet", "-show_entries", "stream=width,height:format=size,duration", "-of", "json", "-i", url), Gio.SubprocessFlags.STDOUT_PIPE)
-    p.wait()
+fail_url = lambda u, e=None: Toast(f"{u}\nError: {e}" if e else f"\n{u} could not be added!")
+def finish_probe(p, result, params):
+    url = params[0]
     try:
         o = json(p.get_stdout_pipe().read_bytes(8192).get_data())
         if not "streams" in o: return Toast(f"No valid stream in {url}")
@@ -288,15 +287,23 @@ def probe(url):
         i["duration"] = int(float(o["format"].get("duration", 0)))
         i["size"] = int(o["format"].get("size", 0))
         i["file_url"] = url
-        return i
+        i.update(params[1])
+        if not "hash" in i:
+            i["hash"] = get_md5(app.session.send_and_read(Soup.Message.new("GET", url)))
+        add_favorite(i)
     except Exception as e: return Toast(f"URL: {url}\nError: {e}")
+def probe(url, args):
+    Toast(f"Probing {url}", timeout=2)
+    p = Gio.Subprocess.new(("ffprobe", "-v", "quiet", "-show_entries", "stream=width,height:format=size,duration", "-of", "json", "-i", url), Gio.SubprocessFlags.STDOUT_PIPE)
+    p.wait_async(None, finish_probe, (url, args))
 def add_favorite(p):
     now = GLib.DateTime.new_now_utc().to_unix()
     for k, v in (("id", max((i["id"] for i in app.data["Favorites"]["Favorites"]), default=0) + 1), ("width", 0), ("height", 0), ("duration", 0), ("rating", 0), ("source", ""), ("has_children", False), ("parent_id", 0), ("tags", []), ("added", now), ("created_at", now), ("updated_at", now), ("file_url", ""), ("preview_url", ""), ("hash", ""), ("size", 0)): p.setdefault(k, v)
-    if not p["file_url"].startswith("http"):
-        p["file_url"] = f"file://{p['file_url']}"
+    for i in ("file_url", "preview_url"):
+        if p[i] and not p[i].startswith("http"):
+            p[i] = f"file://{p[i]}"
     app.data["Favorites"]["Favorites"].append(p)
-    Toast(f"Post {p['id']} added to favorites!")
+    Toast(f"Post {p['id']} added to favorites!", timeout=2)
     return p
 def add_from_url(s, r, fun, url):
     b = s.send_and_read_finish(r)
@@ -312,12 +319,8 @@ def zerochan_add(b, url):
 def twitter_add(b, url):
     medias = []
     if "/status/" in url:
-        h = b.get_data().decode("utf-8")
-        h = h.split('"main-tweet"')[1].split('"attachments"')[1].split("</div></div>")[0]
-        for r in h.split('"gallery-row"'):
-            for i in r.split('href="'):
-                if not "/pic/orig/" in i: continue
-                medias.append(i.split('"')[0].split("%2F")[1])
+        h = xml(b.get_data().decode("utf-8"))
+        for i in h.findall(".//div[@id='m'][@class='main-tweet']//a[@class='still-image']"): medias.append(i.attrib["href"].split("%2F")[1])
     else:
         if "pbs.twimg.com" in url and "format=" in url:
             i = f'{url.split("/")[-1].split("?")[0]}.{url.split("format=")[1].split("&")[0]}' 
@@ -328,24 +331,16 @@ def twitter_add(b, url):
         medias.append(i)
     for i in medias:
         file_url = f'https://pbs.twimg.com/media/{i.split(".")[0]}?format={i.split(".")[-1].split("%")[0]}&name=orig'
-        p = probe(file_url)
-        p["source"] = url.replace("nitter.net", "x.com") if "/status/" in url else file_url
-        p["preview_url"] = file_url.replace("orig", "small")
-        p["hash"] = get_md5(app.session.send_and_read(Soup.Message.new("GET", file_url)))
-        add_favorite(p)
+        probe(file_url, {"source": url.replace("nitter.net", "x.com") if "/status/" in url else file_url, "preview_url": file_url.replace("orig", "small")})
 def chan_add(b, url):
     if "warosu" in url:
-        response = b.get_data().decode("utf-8")
         p = url.rsplit("/", 1)[-1].split("#p")[-1]
-        file_url = response.split(f"alt={p}")[0].rsplit("href=", 1)[1].split(">")[0]
+        file_url = b.get_data().decode("utf-8").split(f"alt={p}")[0].rsplit("href=", 1)[1].split(">")[0]
         thumbnail_url = file_url.replace("img", "thumb").rsplit("/", 1)[0] + "/" + file_url.rsplit("/", 1)[-1].rsplit(".", 1)[0] + "s.jpg"
-        b = app.session.send_and_read(Soup.Message.new("GET", file_url))
     else:
         file_url = url.replace("thumb", "image").replace("s.", ".")
         thumbnail_url = file_url.replace("image", "thumb").rsplit("/", 1)[0] + "/" + file_url.rsplit("/", 1)[-1].rsplit(".", 1)[0] + "s.jpg"
-    p = probe(file_url)
-    p["hash"], p["source"], p["preview_url"], p["created_at"] = get_md5(b), url, thumbnail_url, int(file_url.rsplit("/", 1)[-1].split(".")[0][:10])
-    add_favorite(p)
+    probe(file_url, {"source": url, "preview_url": thumbnail_url, "created_at": int(file_url.rsplit("/", 1)[-1].split(".")[0][:10])})
 def artstation_add(b, url):
     res = json(b.get_data().decode("utf-8"))
     created_at, updated_at = GLib.DateTime.new_from_iso8601(res["created_at"]).to_utc().to_unix(), GLib.DateTime.new_from_iso8601(res["updated_at"]).to_utc().to_unix()
@@ -354,10 +349,7 @@ def artstation_add(b, url):
         file_url = i["image_url"]
         for it in ("/small/", "/large/", "/medium/"):
             file_url = file_url.replace(it, "/4k/")
-        p = probe(file_url)
-        b = app.session.send_and_read(Soup.Message.new("GET", file_url))
-        p["hash"], p["source"], p["preview_url"], p["created_at"], p["updated_at"], p["tags"] = get_md5(b), url, file_url.replace("/4k/", "/small/"), created_at, updated_at, tags
-        add_favorite(p)
+        probe(file_url, {"source": url, "preview_url": file_url.replace("/4k/", "/small/"), "created_at": created_at, "updated_at": updated_at, "tags": tags})
 def reddit_add(b, url):
     res, to_add = b.get_data().decode("utf-8"), []
     if "<gallery-carousel style=" in res:
@@ -365,29 +357,16 @@ def reddit_add(b, url):
             if i.startswith("https://preview.redd.it/"):
                 i = f"https://i.redd.it/{i.split('?')[0].rsplit('-', 1)[1   ]}"
                 if not i in to_add: to_add.append(i)
-    else:
-        to_add.append(res.rsplit("i18n-post-media-img", 1)[1].split('src="')[1].split('"')[0])
-    for i in to_add:
-        p = probe(i)
-        b = app.session.send_and_read(Soup.Message.new("GET", i))
-        p["hash"], p["source"], p["preview_url"] = get_md5(b), url, i
-        add_favorite(p)
+    else: to_add.append(res.rsplit("i18n-post-media-img", 1)[1].split('src="')[1].split('"')[0])
+    for i in to_add: probe(i, {"source": url, "preview_url": i})
 def pinterest_add(b, url):
-    res = b.get_data().decode("utf-8")
-    file_url = res.split('"ImageDetails","url":"')[1].split('"')[0]
-    thumbnail_url = file_url.replace("originals", "1200x")
-    p = probe(file_url)
-    p["hash"], p["source"], p["preview_url"] = file_url.split("/")[-1].split(".")[0], url, thumbnail_url
-    add_favorite(p)
+    file_url = b.get_data().decode("utf-8").split('"ImageDetails","url":"')[1].split('"')[0]
+    probe(file_url, {"source": url, "preview_url": file_url.replace("originals", "1200x"), "hash": file_url.split("/")[-1].split(".")[0]})
 def kemono_add(b, url):
     post = json(b.get_data().decode("utf-8"))
-    created_at, updated_at = tuple(GLib.DateTime.new_from_iso8601(post["post"][i], GLib.TimeZone.new_utc()) for i in ("published", "edited"))
+    created_at, updated_at = tuple(GLib.DateTime.new_from_iso8601(post["post"][i], GLib.TimeZone.new_utc()).to_unix() for i in ("published", "edited"))
     for i in post["previews"]:
-        if not Gio.content_type_guess(i["name"])[0].startswith(("video", "image")): continue
-        file_url = f'{i["server"]}/data{i["path"]}'
-        p = probe(file_url)
-        p["hash"], p["source"], p["preview_url"] = i["path"].split("/")[-1].split(".")[0], url, f'https://img.kemono.cr/thumbnail/data{i["path"]}'
-        add_favorite(p)
+        if Gio.content_type_guess(i["name"])[0].startswith(("video", "image")): probe(f'{i["server"]}/data{i["path"]}', {"hash": i["path"].split("/")[-1].split(".")[0], "source": url, "preview_url":f'https://img.kemono.cr/thumbnail/data{i["path"]}', "created_at": created_at, "updated_at": updated_at})
 extra = {"Zerochan": (lambda u: u.startswith("https://www.zerochan.net/") and u.split("/")[-1].isdigit(), lambda u: app.session.send_and_read_async(Soup.Message.new("GET", f"{u}?&json"), GLib.PRIORITY_DEFAULT, None, add_from_url, *(zerochan_add, u))),
         "Twitter": (lambda u: u.replace("https://", "").startswith(("xcancel.com", "twitter.com", "x.com", "nitter.net", "cdn.xcancel.com", "pbs.twimg.com")), lambda u: (url := u.replace("x.com", "nitter.net").replace("xcancel.com", "nitter.net").replace("twitter.com", "nitter.net"), app.session.send_and_read_async((m := Soup.Message.new("GET", url), tuple(m.get_request_headers().append(k, v) for k, v in (("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"), ("Accept-Language", "en-US,en;q=0.5"), ("Sec-Fetch-Dest", "document"))), m)[-1], GLib.PRIORITY_DEFAULT, None, add_from_url, *(twitter_add, url)))),
         "4chan": (lambda u: u.replace("https://", "").startswith(("boards.4chan.org", "warosu.org", "desu-usergeneratedcontent.xyz")), lambda u: (url := u.replace("boards.4chan", "warosu") if "boards.4chan" in u and u.split("/")[3].startswith(("3", "biz", "cgl", "ck", "diy", "fa", "ic", "jp", "lit", "sci", "vr", "vt")) else u, app.session.send_and_read_async(Soup.Message.new("GET", url), GLib.PRIORITY_DEFAULT, None, add_from_url, *(chan_add, url)))),
@@ -416,13 +395,7 @@ def add(v):
                     u = True
                     continue
             if u: continue
-            try:
-                p = probe(url)
-                if not p: return fail_url(url)
-                b = app.session.send_and_read(Soup.Message.new("GET", url))
-                p["hash"], p["source"], p["preview_url"] = get_md5(b), url, url
-                add_favorite(p)
-                continue
+            try: probe(url)
             except Exception as e:
                 fail_url(url, e)
                 continue
@@ -436,15 +409,11 @@ def add(v):
             if not Gio.content_type_guess(file.get_basename())[0].startswith(("video", "image")):
                 fail_url(file.peek_path())
                 continue
-            b = file.load_bytes()[0]
-            md5 = get_md5(b)
+            md5 = get_md5(file.load_bytes()[0])
             f, pr = app.data_folder.get_child(f"{md5}.{file.peek_path().split('.')[-1]}"), app.data_folder.get_child(f"preview-{md5}.webp")
-            p = probe(file.peek_path())
-            if not p: return fail_url(file.peek_path())
             generate_thumbnail(file, pr)
             if not f.equal(file): file.copy(f, Gio.FileCopyFlags.NONE)
-            p["hash"], p["source"], p["file_url"], p["preview_url"] = md5, file.get_uri(), f.get_uri(), pr.get_uri()
-            add_favorite(p)
+            probe(f.peek_path(), {"hash": md5, "source": file.get_uri(), "file_url": f.get_basename(), "preview_url": pr.get_basename()})
 file_filter = Gio.ListStore.new(Gtk.FileFilter)
 for n, t in (("All Supported Types", ("image/*", "video/*")), ("Image", ("image/*",)), ("Video", ("video/*",))): file_filter.append(Gtk.FileFilter(name=n, mime_types=t))
 Action("add-file", lambda *_: Gtk.FileDialog(filters=file_filter).open_multiple(app.window, None, lambda d, r: add(d.open_multiple_finish(r))), "<primary><shift>a")
@@ -653,7 +622,7 @@ Action("more", lambda *_: view.get_selected_page().get_child().get_child().more.
 def Post(o, s, p=False):
     _hash = get_property(o, "hash", s)
     file_url, preview_url = tuple(get_property(o, i, s) or "" for i in ("file_url", "preview_url"))
-    uri = preview_url if (p or not file_url) else file_url
+    uri = file_url if (not p and file_url or not preview_url) else preview_url
     file, preview_file = tuple(app.data_folder.get_child(i) for i in (f"{_hash}.{file_url.rsplit('.')[-1]}", f"preview-{_hash}.{preview_url.rsplit('.')[-1]}"))
     fe, pe = tuple(os.path.exists(i.peek_path()) for i in (file, preview_file))
     uri = preview_file if pe and (p or not fe) else file if fe else uri
@@ -738,7 +707,7 @@ def tab_operation(a, b=False, t=False):
         if "favorite" in a.get_name():
             q = q[0]
             getattr(preferences, "Bookmarks").tags = [i for i in getattr(preferences, "Bookmarks").tags if not i == q] if q in getattr(preferences, "Bookmarks").tags else [i for i in getattr(preferences, "Bookmarks").tags] + [q]
-            Toast(f"{q} {'added to' if q in getattr(preferences, 'Bookmarks').tags else 'removed from'} bookmarks", timeout=3)
+            Toast(f"{q} {'added to' if q in getattr(preferences, 'Bookmarks').tags else 'removed from'} bookmarks", timeout=2)
 view.connect("close-page", tab_operation)
 for n, k in (("favorite", "d"), ("close", "w"), ("open-current", "o")): (Action(n, tab_operation, f"<primary>{k}"), Action("context-" + n, tab_operation))
 Action("context-pin", lambda *_: view.set_page_pinned(view.t, not view.t.get_pinned()))
@@ -778,7 +747,7 @@ def tab_load(t=None, page=False, q=[]):
             GLib.idle_add(t.set_loading, True)
             if q[2] == "Favorites":
                 q[3] = fetch_favorite_catalog(q[0])
-                count, q[3] = len(q[3]), q[3][limit * q[1]:] if q[1] > 1 else q[3]
+                count, q[3] = len(q[3]), q[3][limit * (q[1] - 1):] if q[1] > 1 else q[3]
             else:
                 try:
                     count, q[3] = fetch_online_catalog(q[2], q[0], q[1], not page)
@@ -800,18 +769,18 @@ def tab_load(t=None, page=False, q=[]):
         GLib.idle_add(t.set_title, m)
     else:
         if page:
-            content.count[0] += len(catalog)
+            content.count[0] = min(limit * q[1], content.count[1])
         else:
             content = MasonryBox(activate=catalog_activate)
             t.viewport = content.get_child()
-            content.count = [len(catalog), count]
+            content.count = [min(limit * q[1], count), count]
             content.get_child().connect("edge-reached", catalog_load_more)
         for i in catalog:
             if any(it in get_property(i, "tags", i[1]) for it in getattr(preferences, "Blacklist").tags): continue
             GLib.idle_add(content.add, Post(i[0] if q[2] == "Favorites" else i, i[1] if q[2] == "Favorites" else q[2], True))
         total_pages = -(-content.count[1] // limit)
         m = f"Page {q[1]} of {total_pages}"
-        Toast(m, message=f'{GLib.DateTime.new_now_local().format("%R")} in {q[2]} "{q[0]}" {m}', timeout=2)
+        Toast(m, message=f'{GLib.DateTime.new_now_local().format("%R")} in {q[2]} "{q[0]}" {m}', timeout=1)
     content.q = q
     GLib.idle_add(t.get_child().set_child, content)
     GLib.timeout_add(200, t.set_loading, False)
@@ -909,7 +878,7 @@ def ai_ai(b):
     b = app.session.send_and_read(mes)
     if mes.get_status() == 200:
         editable[0][0].tags = [i for i in json(b.get_data())[0]["tags"]]
-        Toast(title=f"Done!", timeout=2)
+        Toast(title=f"Tags updated", timeout=2)
     else: Toast(title=f"Server returned {mes.get_status()}!")
 ai_tag_button.connect("activated", ai_ai)
 group.add(ai_tag_button)
