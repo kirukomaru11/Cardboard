@@ -1,10 +1,9 @@
 #!/usr/bin/python3
 from json import loads as json
-from re import compile as regex
 
 from AppUtils import *
 
-css = """
+style = """
 tabview :not(masonrybox) .spinner { min-width: 200px; min-height: 400px; }
 tabview masonrybox media label { margin: 0px 0px 8px 8px; padding: 6px 10px 6px 10px; border-radius: 14px; font-weight: bold; }
 tabview masonrybox media box { border-spacing: 6px; }
@@ -51,7 +50,7 @@ search text popover row:last-child { margin-bottom: 0px; }
 search text popover row box { border-spacing: 4px; }
 
 sheet,
-window {
+toolbarview {
   transition-property: background;
   transition-duration: 250ms;
   transition-timing-function: ease;
@@ -64,7 +63,7 @@ window {
   --card-bg-color: rgb(255 255 255 / 4%);
 }
 .colored sheet,
-.colored {
+.colored toolbarview {
   background: linear-gradient(to bottom right, color-mix(in srgb, var(--color-1) 45%, transparent), transparent),
     linear-gradient(to bottom left, color-mix(in srgb, var(--color-2) 45%, transparent), transparent),
     linear-gradient(to top, color-mix(in srgb, var(--color-3) 45%, transparent), transparent),
@@ -75,6 +74,23 @@ window {
 """
 
 limit, ratings = 30, ("General", "Sensitive", "Questionable", "Explicit")
+sites = {
+    "Favorites": {
+        "get_url": lambda q: app.data_folder,
+        "overrides": {
+            "size": lambda p: f"{p['width']}x{p['height']} ({GLib.format_size(p['size'])})",
+            "duration": lambda p: GLib.DateTime.new_from_unix_utc(p["duration"]).format("%T") if p["duration"] > 0 else None,
+            "created_at": (lambda p: GLib.DateTime.new_from_unix_utc(p["created_at"]), lambda d: d.to_utc().to_unix()),
+            "updated_at": (lambda p: GLib.DateTime.new_from_unix_utc(p["updated_at"]), lambda d: d.to_utc().to_unix()),},},
+        "Danbooru": {"url": "https://danbooru.donmai.us",
+                     "api": lambda: f"&api_key={getattr(preferences, 'Danbooru Token').get_text()}&login={getattr(preferences, 'Danbooru User').get_text()}" if getattr(preferences, "Danbooru User").get_text() and getattr(preferences, "Danbooru Token").get_text() else ""},
+        "Gelbooru": {"url": "https://gelbooru.com",
+                     "api": lambda: f"&api_key={getattr(preferences, 'Gelbooru Token').get_text()}&user_id={getattr(preferences, 'Gelbooru User').get_text()}" if getattr(preferences, "Gelbooru User").get_text() and getattr(preferences, "Gelbooru Token").get_text() else ""},
+        "AI Booru": {"url": "https://aibooru.ovh",},
+        "Yande.re": {"url": "https://yande.re",},
+        "Konachan": {"url": "https://konachan.com",},
+        "Sakugabooru": {"url": "https://sakugabooru.com",}
+    }
 
 def shutdown(*_):
     app.data["Tabs"] = tuple((q[0], q[1], q[2], i.get_pinned()) for i in view.get_pages() for q in [i.history[i.index]])
@@ -95,34 +111,17 @@ def shutdown(*_):
 app = App(shortcuts={"General": (("Add File", "app.add-file"), ("Add URL", "app.add-url"), ("Paste File/Image/URL", "<primary>v"), ("Keyboard Shortcuts", "app.shortcuts"), ("Preferences", "app.preferences"), ("Fullscreen", "app.fullscreen")), "Tabs": (("Overview", "app.overview"), ("Open in Browser", "app.open-current"), ("New Tab", "app.new-tab"), ("Close Tab", "app.close"), ("Reopen Closed Tab", "app.reopen-tab"), ("Toggle Favorite/Bookmark", "app.favorite"), ("Toggle Constrain", "f"), ("Post More", "app.more"), ("Download Post", "app.download"))},
           shutdown=shutdown,
           application_id="io.github.kirukomaru11.Cardboard",
-          style=css,
+          style=style,
           data={
             "Window": { "default-height": 600, "default-width": 600, "maximized": False },
-            "General": { "Tabs": { "New Tab Site": "Danbooru", "New Tab Query": ""},  "Favorites": { "Delete Unused": False, "Download Favorites": False }, "View": { "Safe Mode": True, "Autocomplete": True, "Constrain Post Size": True, "Post Colors Theming": True }, },
+            "General": { "Tabs": { "New Tab Site": "Danbooru", "New Tab Query": ""},  "Favorites": { "Delete Unused": False, "Download Favorites": False }, "View": { "Safe Mode": True, "Autocomplete": True, "Post Colors Theming": True }, },
             "Tags": { "Bookmarks": [],"Blacklist": [] },
-            "Accounts": {},
+            "Accounts": {i:{"User": "", "Token": ""} for i in sites if "api" in sites[i]},
             "Tabs": (),
-            "Favorites": {}
+            "Favorites": {i:[] for i in sites}
           })
+sites["Favorites"]["url"] = app.data_folder.get_uri()
 app.modifying = False
-sites = {
-    "Favorites": {
-        "url": app.data_folder.get_uri(),
-        "get_url": lambda q: app.data_folder,
-        "overrides": {
-            "size": lambda p: f"{p['width']}x{p['height']} ({GLib.format_size(p['size'])})",
-            "duration": lambda p: GLib.DateTime.new_from_unix_utc(p["duration"]).format("%T") if p["duration"] > 0 else None,
-            "created_at": (lambda p: GLib.DateTime.new_from_unix_utc(p["created_at"]), lambda d: d.to_utc().to_unix()),
-            "updated_at": (lambda p: GLib.DateTime.new_from_unix_utc(p["updated_at"]), lambda d: d.to_utc().to_unix()),},},
-        "Danbooru": {"url": "https://danbooru.donmai.us",
-                     "api": lambda: f"&api_key={getattr(preferences, 'Danbooru Token').get_text()}&login={getattr(preferences, 'Danbooru User').get_text()}" if getattr(preferences, "Danbooru User").get_text() and getattr(preferences, "Danbooru Token").get_text() else ""},
-        "Gelbooru": {"url": "https://gelbooru.com",
-                     "api": lambda: f"&api_key={getattr(preferences, 'Gelbooru Token').get_text()}&user_id={getattr(preferences, 'Gelbooru User').get_text()}" if getattr(preferences, "Gelbooru User").get_text() and getattr(preferences, "Gelbooru Token").get_text() else ""},
-        "AI Booru": {"url": "https://aibooru.ovh",},
-        "Yande.re": {"url": "https://yande.re",},
-        "Konachan": {"url": "https://konachan.com",},
-        "Sakugabooru": {"url": "https://sakugabooru.com",}
-    }
 
 def get_property(o, k, s):
     if " || " in k:
@@ -271,10 +270,6 @@ for i in ("Yande.re", "Konachan", "Sakugabooru"):
         "parent_id": (lambda p: 0 if p["parent_id"] is None else p["parent_id"], lambda v: None if int(v) == 0 else int(v)),
         "created_at": (lambda p: GLib.DateTime.new_from_unix_utc(p["created_at"]), lambda d: d.to_utc().to_unix()),
     }
-
-for i in sites:
-    if "api" in sites[i]: app.data["Accounts"].setdefault(i, {"User": "", "Token": ""} )
-    app.data["Favorites"].setdefault(i, [])
 
 get_md5 = lambda b: (c := GLib.Checksum.new(0), c.update(b.get_data()), c.get_string())[-1]
 fail_url = lambda u, e=None: Toast(f"{u}\nError: {e}" if e else f"\n{u} could not be added!")
@@ -618,7 +613,7 @@ def post_favorite(b):
     show_revealer(p.event)
 def finish_func(picture, paintable):
     if not isinstance(picture.get_parent(), Gtk.Overlay):
-        paintable.colors = palette(paintable, distance=1.6, black_white=3.0)
+        paintable.colors = palette(paintable, distance=160, black_white=300)
         GLib.idle_add(apply_colors)
 Action("more", lambda *_: view.get_selected_page().get_child().get_child().more.emit("clicked") if hasattr(view.get_selected_page().get_child().get_child(), "more") else None, "<primary>e")
 def Post(o, s, p=False):
@@ -630,7 +625,7 @@ def Post(o, s, p=False):
     uri = preview_file if pe and (p or not fe) else file if fe else uri
     if uri == "":
         uri = None
-    post = Media(uri, finish_func=finish_func, parent_type=Gtk.Overlay, play=not p, scrollable=int(not getattr(preferences, "View Constrain Post Size").get_active()) if not p else None, c__halign=Gtk.Align.FILL if p else Gtk.Align.CENTER)
+    post = Media(uri, finish_func=finish_func, parent_type=Gtk.Overlay, play=not p, scrollable=not p, c__halign=Gtk.Align.FILL if p else Gtk.Align.CENTER)
     buttons = tuple(Button(name=n, callback=c) for n, c in (("related", post_related), ("favorite", post_favorite), ("more", show_edit)))
     for i in buttons: setattr(post, i.get_name(), i)
     post.more.set_properties(icon_name="view-more", tooltip_text="More")
@@ -915,9 +910,10 @@ def show_edit(b, *_):
 
 def apply_colors(*_):
     v = None
-    if view.get_selected_page().get_child().get_child():
-        v = view.get_selected_page().get_child().get_child().get_child().get_child().get_child()
-        v = v.get_paintable() if hasattr(v, "get_paintable") else None
+    if not view.get_selected_page().get_child().get_child(): return False
+    if not view.get_selected_page().get_child().get_child().get_child(): return False
+    v = view.get_selected_page().get_child().get_child().get_child().get_child().get_child()
+    v = v.get_paintable() if hasattr(v, "get_paintable") else None
     GLib.idle_add(set_colors, v, True)
     return False
 for i in app.data["Tabs"]:
