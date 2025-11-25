@@ -615,6 +615,7 @@ def finish_func(picture, paintable):
     if not isinstance(picture.get_parent(), Gtk.Overlay):
         paintable.colors = palette(paintable, distance=160, black_white=300)
         GLib.idle_add(apply_colors)
+app.finish_func = finish_func
 Action("more", lambda *_: view.get_selected_page().get_child().get_child().more.emit("clicked") if hasattr(view.get_selected_page().get_child().get_child(), "more") else None, "<primary>e")
 def Post(o, s, p=False):
     _hash = get_property(o, "hash", s)
@@ -625,7 +626,7 @@ def Post(o, s, p=False):
     uri = preview_file if pe and (p or not fe) else file if fe else uri
     if uri == "":
         uri = None
-    post = Media(uri, finish_func=finish_func, parent_type=Gtk.Overlay, play=not p, scrollable=not p, c__halign=Gtk.Align.FILL if p else Gtk.Align.CENTER)
+    post = Media(uri, overlay=True, controls=not p, play=not p, scrollable=not p)
     buttons = tuple(Button(name=n, callback=c) for n, c in (("related", post_related), ("favorite", post_favorite), ("more", show_edit)))
     for i in buttons: setattr(post, i.get_name(), i)
     post.more.set_properties(icon_name="view-more", tooltip_text="More")
@@ -774,7 +775,7 @@ def tab_load(t=None, page=False, q=[]):
             content.get_child().connect("edge-reached", catalog_load_more)
         for i in catalog:
             if any(it in get_property(i, "tags", i[1]) for it in getattr(preferences, "Blacklist").tags): continue
-            GLib.idle_add(content.add, Post(i[0] if q[2] == "Favorites" else i, i[1] if q[2] == "Favorites" else q[2], True))
+            GLib.idle_add(masonrybox_add, *(content, Post(i[0] if q[2] == "Favorites" else i, i[1] if q[2] == "Favorites" else q[2], True)))
         total_pages = -(-content.count[1] // limit)
         m = f"Page {q[1]} of {total_pages}"
         Toast(m, message=f'{GLib.DateTime.new_now_local().format("%R")} in {q[2]} "{q[0]}" {m}', timeout=1)
@@ -910,7 +911,7 @@ def show_edit(b, *_):
 
 def apply_colors(*_):
     v = None
-    if not view.get_selected_page().get_child().get_child(): return False
+    if isinstance(view.get_selected_page().get_child(), Adw.Spinner) or not view.get_selected_page().get_child().get_child(): return False
     if not view.get_selected_page().get_child().get_child().get_child(): return False
     v = view.get_selected_page().get_child().get_child().get_child().get_child().get_child()
     v = v.get_paintable() if hasattr(v, "get_paintable") else None
