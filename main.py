@@ -141,7 +141,7 @@ def fetch_favorite_catalog(queries):
         key_terms = tuple(i for i in terms if ":" in i and len(i.split(":")) == 2)
         terms = tuple(i for i in terms if not i in key_terms)
         key_terms = tuple(i.split(":") for i in key_terms)
-        key_terms = tuple((i[0].replace("regex_", ""), regex(i[1]) if i[0].startswith("regex_") else ratings.index(i[1].title()) if i[0] == "rating" else i[1]) for i in key_terms)
+        key_terms = tuple((i[0].replace("regex_", ""), regex(i[1]) if i[0].startswith("regex_") else ratings.index(i[1].title()) if i[0] == "rating" and i[1].title() in ratings else i[1]) for i in key_terms)
         term_sites = [i.replace("_", " ") for i in query.split(" ") if i.startswith(("-site:", "site:"))]
         if not tuple(i for i in term_sites if i.startswith("site:")):
             term_sites += [i for i in sites if not tuple(it for it in term_sites if it.split(":")[-1] == i)]
