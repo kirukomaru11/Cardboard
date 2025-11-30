@@ -74,69 +74,55 @@ toolbarview {
 """
 
 limit, ratings = 30, ("General", "Sensitive", "Questionable", "Explicit")
-sites = {
-    "Favorites": {
-        "get_url": lambda q: app.data_folder,
-        "overrides": {
-            "size": lambda p: f"{p['width']}x{p['height']} ({GLib.format_size(p['size'])})",
-            "duration": lambda p: GLib.DateTime.new_from_unix_utc(p["duration"]).format("%T") if p["duration"] > 0 else None,
-            "created_at": (lambda p: GLib.DateTime.new_from_unix_utc(p["created_at"]), lambda d: d.to_utc().to_unix()),
-            "updated_at": (lambda p: GLib.DateTime.new_from_unix_utc(p["updated_at"]), lambda d: d.to_utc().to_unix()),},},
-        "Danbooru": {"url": "https://danbooru.donmai.us",
-                     "api": lambda: f"&api_key={getattr(preferences, 'Danbooru Token').get_text()}&login={getattr(preferences, 'Danbooru User').get_text()}" if getattr(preferences, "Danbooru User").get_text() and getattr(preferences, "Danbooru Token").get_text() else ""},
-        "Gelbooru": {"url": "https://gelbooru.com",
-                     "api": lambda: f"&api_key={getattr(preferences, 'Gelbooru Token').get_text()}&user_id={getattr(preferences, 'Gelbooru User').get_text()}" if getattr(preferences, "Gelbooru User").get_text() and getattr(preferences, "Gelbooru Token").get_text() else ""},
-        "AI Booru": {"url": "https://aibooru.ovh",},
-        "Yande.re": {"url": "https://yande.re",},
-        "Konachan": {"url": "https://konachan.com",},
-        "Sakugabooru": {"url": "https://sakugabooru.com",}
-    }
 
 def shutdown(*_):
+    app.shutdown = True
     app.data["Tabs"] = tuple((q[0], q[1], q[2], i.get_pinned()) for i in view.get_pages() for q in [i.history[i.index]])
     data_save()
     if getattr(preferences, "Favorites Delete Unused").get_active():
         for i in os.listdir(app.data_folder.peek_path()):
             if i in (app.name, f"{app.name}~"): continue
             u = False
-            for s, v in app.data["Favorites"].items():
-                for p in v:
-                    _hash = get_property(p, "hash", s)
-                    if i in (f"{_hash}.{get_property(p, 'file_url', s).rsplit('.')[-1]}", f"preview-{_hash}.{get_property(p, 'preview_url', s).rsplit('.')[-1]}"):
-                        u = True
+            for site in app.data["Sites"]:
+                for s, v in app.data[site]["Favorites"].items():
+                    for p in v:
+                        _hash = get_property(p, "hash", s)
+                        if i in (f"{_hash}.{get_property(p, 'file_url', s).rsplit('.')[-1]}", f"preview-{_hash}.{get_property(p, 'preview_url', s).rsplit('.')[-1]}"):
+                            u = True
             if not u:
                 print("Deleting", i)
                 app.data_folder.get_child(i).delete()
 
-app = App(shortcuts={"General": (("Add File", "app.add-file"), ("Add URL", "app.add-url"), ("Paste File/Image/URL", "<primary>v"), ("Keyboard Shortcuts", "app.shortcuts"), ("Preferences", "app.preferences"), ("Fullscreen", "app.fullscreen")), "Tabs": (("Overview", "app.overview"), ("Open in Browser", "app.open-current"), ("New Tab", "app.new-tab"), ("Close Tab", "app.close"), ("Reopen Closed Tab", "app.reopen-tab"), ("Toggle Favorite/Bookmark", "app.favorite"), ("Toggle Constrain", "f"), ("Post More", "app.more"), ("Download Post", "app.download"))},
+app = App(shortcuts={"General": (("Add File", "app.add-file"), ("Add URL", "app.add-url"), ("Paste File/Image/URL", "<primary>v"), ("Keyboard Shortcuts", "app.shortcuts"), ("Preferences", "app.preferences"), ("Fullscreen", "app.fullscreen")), "Tabs": (("Overview", "app.overview"), ("Open in Browser", "app.open-current"), ("New Tab", "app.new-tab"), ("Close Tab", "app.close"), ("Reopen Closed Tab", "app.reopen-tab"), ("Toggle Favorite/Bookmark", "app.favorite"), ("Post More", "app.more"), ("Download Post", "app.download"))},
           shutdown=shutdown,
           application_id="io.github.kirukomaru11.Cardboard",
           style=style,
           data={
             "Window": { "default-height": 600, "default-width": 600, "maximized": False },
-            "General": { "Tabs": { "New Tab Site": "Danbooru", "New Tab Query": ""},  "Favorites": { "Delete Unused": False, "Download Favorites": False }, "View": { "Safe Mode": True, "Autocomplete": True, "Post Colors Theming": True }, },
+            "General": { "Tabs": { "New Tab Site": "Cardboard", "New Tab Query": ""},  "Favorites": { "Delete Unused": False, "Download Favorites": False }, "View": { "Autocomplete": True, "Post Colors Theming": True }, },
             "Tags": { "Bookmarks": [],"Blacklist": [] },
-            "Accounts": {i:{"User": "", "Token": ""} for i in sites if "api" in sites[i]},
             "Tabs": (),
-            "Favorites": {i:[] for i in sites}
+            "Sites": {}
           })
-sites["Favorites"]["url"] = app.data_folder.get_uri()
-app.modifying = False
+app.data["Sites"].setdefault("Cardboard", {"Append to Search": "", "Favorites": []})
+app.modifying, app.sites, app.shutdown = False, {}, False
 
 def get_property(o, k, s):
     if " || " in k:
         k = k.split(" || ")[0]
-    if k in sites[s]["overrides"]:
-        if callable(sites[s]["overrides"][k]): return sites[s]["overrides"][k](o)
-        if callable(sites[s]["overrides"][k][0]): return sites[s]["overrides"][k][0](o)
-        return sites[s]["overrides"][k]
+    e = engines[s if s == "Cardboard" else app.sites[s]["Engine"].get_selected_item().get_string()]
+    if k in e["overrides"]:
+        if callable(e["overrides"][k]): return e["overrides"][k](o)
+        if callable(e["overrides"][k][0]): return e["overrides"][k][0](o)
+        return e["overrides"][k]
     if k in o: return o[k]
 
 def fetch_favorite_catalog(queries):
     catalog = []
-    queries, s = " ".join(tuple(i for i in queries.split(" ") if not i.lower().startswith("order:"))).split("+"), tuple(i for i in queries.split(" ") if i.lower().startswith("order:"))
+    queries, s = " ".join(tuple(i for i in queries.split(" ") if not i.lower().startswith("order:"))).split(" + "), tuple(i for i in queries.split(" ") if i.lower().startswith("order:"))
     s = s[0].lower().split(":")[1] if s else "added"
     for query in queries:
+        query += app.sites["Cardboard"]["Append to Search"].get_text()
         terms = tuple(i for i in query.split(" ") if i and not i.startswith(("-site:", "site:")))
         key_terms = tuple(i for i in terms if ":" in i and len(i.split(":")) == 2)
         terms = tuple(i for i in terms if not i in key_terms)
@@ -144,13 +130,12 @@ def fetch_favorite_catalog(queries):
         key_terms = tuple((i[0].replace("regex_", ""), regex(i[1]) if i[0].startswith("regex_") else ratings.index(i[1].title()) if i[0] == "rating" and i[1].title() in ratings else i[1]) for i in key_terms)
         term_sites = [i.replace("_", " ") for i in query.split(" ") if i.startswith(("-site:", "site:"))]
         if not tuple(i for i in term_sites if i.startswith("site:")):
-            term_sites += [i for i in sites if not tuple(it for it in term_sites if it.split(":")[-1] == i)]
-        term_sites = tuple(i.split(":")[-1] for i in term_sites if not i.startswith("-") and i.split(":")[-1] in app.data["Favorites"])
+            term_sites += [i.get_string() for i in sites if not tuple(it for it in term_sites if it.split(":")[-1] == i.get_string())]
+        term_sites = tuple(i.split(":")[-1] for i in term_sites if not i.startswith("-") and i.split(":")[-1] in app.data["Sites"])
         for site in term_sites:
-            for p in app.data["Favorites"][site]:
+            for p in app.data["Sites"][site]["Favorites"]:
                 if not "added" in p:
                     p["added"] = GLib.DateTime.new_now_utc().to_unix()
-                if getattr(preferences, "View Safe Mode").get_active() and not get_property(p, "rating", site) == 0: continue
                 if any(t[:1] in get_property(p, "tags", site) for t in terms if t.startswith("-")): continue
                 if not all(t in get_property(p, "tags", site) for t in terms): continue
                 if any(not k[0] in p or (not k[1].search(str(get_property(p, k[0], site))) if hasattr(k[1], "search") else str(get_property(p, k[0], site)) != str(k[1])) for k in key_terms): continue
@@ -164,17 +149,19 @@ def fetch_favorite_catalog(queries):
 
 def fetch_online_catalog(site, queries, page, count=False):
     catalog = [0, []]
-    for query in queries.split("+"):
-        response = json(app.session.send_and_read(Soup.Message.new("GET", sites[site]["fetch_catalog"](query, page))).get_data().decode("utf-8"))
+    e = engines[app.sites[site]["Engine"].get_selected_item().get_string()]
+    url, append = app.sites[site]["URL"].get_text(), app.sites[site]["Append to Search"].get_text()
+    for query in queries.split(" + "):
+        response = json(app.session.send_and_read(Soup.Message.new("GET", url + e["fetch_catalog"](query, page) + append)).get_data().decode("utf-8"))
         if count:
             n = response
-            if "fetch_count" in sites[site]:
-                n = app.session.send_and_read(Soup.Message.new("GET", sites[site]["fetch_count"](query))).get_data().decode("utf-8")
-            if "get_count" in sites[site]:
-                n = sites[site]["get_count"]((n, response))
+            if "fetch_count" in e:
+                n = app.session.send_and_read(Soup.Message.new("GET", url + e["fetch_count"](query) + append)).get_data().decode("utf-8")
+            if "get_count" in e:
+                n = e["get_count"]((n, response))
             catalog[0] += n
-        catalog[1] += sites[site]["get_catalog"](response) if "get_catalog" in sites[site] else response
-    if "+" in queries: catalog[1].sort(key=lambda i: i["id"], reverse=True)
+        catalog[1] += e["get_catalog"](response) if "get_catalog" in e else response
+    if " + " in queries: catalog[1].sort(key=lambda i: i["id"], reverse=True)
     return catalog
 
 def finish_adding_post(s, r, st):
@@ -183,48 +170,57 @@ def finish_adding_post(s, r, st):
     p = json(b.get_data().decode("utf-8"))
     p = p["post"] if "post" and "@attributes" in p else p
     p = p[0] if isinstance(p, list) else p
-    if not "file_url" in p or "file_url" in sites[st]["overrides"] and not sites[st]["overrides"]["file_url"][0](p): return Toast(f"Couldn't add {url}: File URL not in post!")
+    e = engines[app.sites[st]["Engine"].get_selected_item().get_string()]
+    if not "file_url" in p or "file_url" in e["overrides"] and not e["overrides"]["file_url"][0](p): return Toast(f"Couldn't add {url}: File URL not in post!")
     p["added"] = GLib.DateTime.new_now_utc().to_unix()
-    app.data["Favorites"][st].append(p)
+    app.data["Sites"][st]["Favorites"].append(p)
     Toast(f"{p['id']} added to {st}'s favorites", timeout=2)
 def general_add(url):
     if "?" in url and "tags=" in url:
-        tags = GLib.Uri.parse_params(url.split("?")[-1], -1, "&", GLib.UriParamsFlags.NONE)["tags"].replace("+", " ")
+        tags = GLib.Uri.parse_params(url.split("?")[-1], -1, "&", GLib.UriParamsFlags.NONE)["tags"].replace(" + ", " ")
         if tags in getattr(preferences, "Bookmarks").tags: Toast(f"{tags} already in bookmarks!")
         else:
             getattr(preferences, "Bookmarks").tags += [tags]
             Toast(f"{tags} added to bookmarks", timeout=2)
     else: Toast(f"Couldn't add {url}")
-def danbooru_add(s, url):
+def danbooru_add(s, e, url):
+    url = url.replace("/post/show/", "/posts/")
     if "/posts/" in url:
         p_id = url.split("?")[0].split("/posts/")[-1]
-        if tuple(i for i in app.data["Favorites"][s] if i["id"] == p_id):
-            return Toast(f"{p_id} already in {s}'s favorites!", timeout=0)
+        if tuple(i for i in app.data["Sites"][s]["Favorites"] if i["id"] == p_id): return Toast(f"{p_id} already in {s}'s favorites!", timeout=0)
         r = app.session.send_and_read_async(Soup.Message.new("GET", f"{url.split('?')[0]}.json"), GLib.PRIORITY_DEFAULT, None, finish_adding_post, s)
     else: general_add(url)
-def gelbooru_add(s, url):
+def gelbooru_add(s, e, url):
     if "id=" in url:
         p_id = GLib.Uri.parse_params(url.split("?")[-1], -1, "&", GLib.UriParamsFlags.NONE)["id"]
-        if tuple(i for i in app.data["Favorites"][s] if i["id"] == p_id):
+        if tuple(i for i in app.data["Sites"][s]["Favorites"] if i["id"] == p_id):
             return Toast(f"{p_id} already in {s}'s favorites!")
-        r = app.session.send_and_read_async(Soup.Message.new("GET", sites[s]["fetch_catalog"](f"id:{p_id}", 1)), GLib.PRIORITY_DEFAULT, None, finish_adding_post, s)
+        r = app.session.send_and_read_async(Soup.Message.new("GET", app.sites[s]["URL"].get_text() + e["fetch_catalog"](f"id:{p_id}", 1) + app.sites[s]["Append to Search"].get_text()), GLib.PRIORITY_DEFAULT, None, finish_adding_post, s)
     else: general_add(url)
-def moebooru_add(s, url):
+def moebooru_add(s, e, url):
     if "/post/show/" in url:
         p_id = url.split("?")[0].split("/post/show/")[-1].split("/")[0]
-        if tuple(i for i in app.data["Favorites"][s] if i["id"] == p_id):
+        if tuple(i for i in app.data["Sites"][s]["Favorites"] if i["id"] == p_id):
             return Toast(f"{p_id} already in {s}'s favorites!", timeout=0)
-        r = app.session.send_and_read_async(Soup.Message.new("GET", sites[s]["fetch_catalog"](f"id:{p_id}", 1)), GLib.PRIORITY_DEFAULT, None, finish_adding_post, s)
+        r = app.session.send_and_read_async(Soup.Message.new("GET", app.sites[s]["URL"].get_text() + e["fetch_catalog"](f"id:{p_id}", 1) + app.sites[s]["Append to Search"].get_text()), GLib.PRIORITY_DEFAULT, None, finish_adding_post, s)
     else: general_add(url)
 
-for i in ("Danbooru", "AI Booru"):
-    sites[i]["add"] = danbooru_add
-    sites[i]["fetch_catalog"] = lambda t, p, _i=i: f"{sites[_i]['url']}/posts.json?limit={limit}&page={p}&tags={t + (' status:any' if not 'status:' in t else '') + (' rating:safe' if getattr(preferences, 'View Safe Mode').get_active() else '')}" + (sites[_i]["api"]() if "api" in sites[_i] else "")
-    sites[i]["get_catalog"] = lambda c: tuple(i for i in c if "file_url" in i and not i["file_url"].endswith("swf"))
-    sites[i]["fetch_count"] = lambda t, _i=i: f"{sites[_i]['url']}/counts/posts.json?tags={t}"
-    sites[i]["get_count"] = lambda d: (c := json(d[0]), c["counts"]["posts"] if c["counts"]["posts"] else 0)[1]
-    sites[i]["get_url"] = lambda q, _i=i: f"{sites[_i]['url']}/posts/{q[0]['id']}" if isinstance(q[0], dict) else f"{sites[_i]['url']}/posts?page={q[1]}&tags={q[0] + (' status:any' if not 'status:' in q[0] else '') + (' rating:safe' if getattr(preferences, 'View Safe Mode').get_active() else '')}"
-    sites[i]["overrides"] = {
+engines = {
+"Cardboard": {
+    "overrides": {
+        "size": lambda p: f"{p['width']}x{p['height']} ({GLib.format_size(p['size'])})",
+        "duration": lambda p: GLib.DateTime.new_from_unix_utc(p["duration"]).format("%T") if p["duration"] > 0 else None,
+        "created_at": (lambda p: GLib.DateTime.new_from_unix_utc(p["created_at"]), lambda d: d.to_utc().to_unix()),
+        "updated_at": (lambda p: GLib.DateTime.new_from_unix_utc(p["updated_at"]), lambda d: d.to_utc().to_unix()),},
+},
+"Danbooru": {
+    "add": danbooru_add,
+    "fetch_catalog": lambda t, p: f"/posts.json?limit={limit}&page={p}&tags={t}",
+    "get_catalog": lambda c: tuple(i for i in c if "file_url" in i and not i["file_url"].endswith("swf")),
+    "fetch_count": lambda t: f"/counts/posts.json?tags={t}",
+    "get_count": lambda d: (c := json(d[0]), c["counts"]["posts"] if c["counts"]["posts"] else 0)[1],
+    "get_url": lambda q: f"/posts/{q[0]['id']}" if isinstance(q[0], dict) else f"/posts?page={q[1]}&tags={q[0]}",
+    "overrides": {
         "hash": lambda p: p["md5"],
         "rating": (lambda p: ratings.index(next(i for i in ratings if i.lower().startswith(p["rating"]))), lambda n: ratings[n].lower()[:1]),
         "duration": lambda p: GLib.DateTime.new_from_unix_utc(p["media_asset"]["duration"]).format("%T") if "media_asset" in p and "duration" in p["media_asset"] and p["media_asset"]["duration"] else None,
@@ -239,13 +235,14 @@ for i in ("Danbooru", "AI Booru"):
         "created_at": (lambda p: GLib.DateTime.new_from_iso8601(p["created_at"]), lambda d: d.format_iso8601()),
         "updated_at": (lambda p: GLib.DateTime.new_from_iso8601(p["updated_at"]), lambda d: d.format_iso8601()),
     }
-for i in ("Gelbooru",):
-    sites[i]["add"] = gelbooru_add
-    sites[i]["fetch_catalog"] = lambda t, p, _i=i: f"{sites[_i]['url']}/index.php?limit={limit}&pid={p - 1}&page=dapi&s=post&q=index&tags={t + (' rating:general' if getattr(preferences, 'View Safe Mode').get_active() else '')}&json=1" + (sites[_i]["api"]() if "api" in sites[_i] else "")
-    sites[i]["get_catalog"] = lambda c: c["post"] if "post" in c else []
-    sites[i]["get_count"] = lambda c: c[1]["@attributes"]["count"]
-    sites[i]["get_url"] = lambda q, _i=i: f"{sites[_i]['url']}/index.php?page=post&s=view&id={q[0]['id']}" if isinstance(q[0], dict) else f"{sites[_i]['url']}/index.php?page=post&s=list&pid={q[1] - 1}&tags={q[0] + (' rating:general' if getattr(preferences, 'View Safe Mode').get_active() else '')}"
-    sites[i]["overrides"] = {
+},
+"Gelbooru": {
+    "add": gelbooru_add,
+    "fetch_catalog": lambda t, p: f"/index.php?limit={limit}&pid={p - 1}&page=dapi&s=post&q=index&json=1&tags={t}",
+    "get_catalog": lambda c: c["post"] if "post" in c else [],
+    "get_count": lambda c: c[1]["@attributes"]["count"],
+    "get_url": lambda q: f"/index.php?page=post&s=view&id={q[0]['id']}" if isinstance(q[0], dict) else f"/index.php?page=post&s=list&pid={q[1] - 1}&tags={q[0]}",
+    "overrides": {
         "hash": lambda p: p["md5"],
         "size": lambda p: f"{p['width']}x{p['height']}",
         "uploader": lambda p: p["owner"],
@@ -255,13 +252,14 @@ for i in ("Gelbooru",):
         "created_at": (lambda p: (d := p["created_at"].rsplit(" ", 2), t := d.pop(1), da := Soup.date_time_new_from_http_string(" ".join(d)).format_iso8601().replace("Z", t), GLib.DateTime.new_from_iso8601(da))[-1], lambda d: d.format("%a %b %d %H:%M:%S %z %Y")),
         "updated_at": (lambda p: GLib.DateTime.new_from_unix_utc(p["change"]), lambda d: d.to_utc().to_unix()),
     }
-for i in ("Yande.re", "Konachan", "Sakugabooru"):
-    sites[i]["add"] = moebooru_add
-    sites[i]["fetch_catalog"] = lambda t, p, _i=i: f"{sites[_i]['url']}/post.json?limit={limit}&page={p}&tags={t + (' rating:general' if getattr(preferences, 'View Safe Mode').get_active() else '')}&json=1" + (sites[_i]["api"]() if "api" in sites[_i] else "")
-    sites[i]["fetch_count"] = lambda t, _i=i: f"{sites[_i]['url']}/post.xml?tags={t}"
-    sites[i]["get_count"] = lambda c: int(xml(c[0]).attrib["count"])
-    sites[i]["get_url"] = lambda q, _i=i: f"{sites[_i]['url']}/post?id={q[0]['id']}" if isinstance(q[0], dict) else f"{sites[_i]['url']}/post?page={q[1]}&tags={q[0] + (' rating:general' if getattr(preferences, "View Safe Mode").get_active() else '')}"
-    sites[i]["overrides"] = {
+},
+"Moebooru": {
+    "add": moebooru_add,
+    "fetch_catalog": lambda t, p: f"/post.json?limit={limit}&page={p}&json=1&tags={t}",
+    "fetch_count": lambda t: f"/post.xml?tags={t}",
+    "get_count": lambda c: int(xml(c[0]).attrib["count"]),
+    "get_url": lambda q: f"/post?id={q[0]['id']}" if isinstance(q[0], dict) else f"/post?page={q[1]}&tags={q[0]}",
+    "overrides": {
         "hash": lambda p: p["md5"],
         "size": lambda p: f"{p['width']}x{p['height']} ({GLib.format_size(p['file_size'])})",
         "uploader": lambda p: p["author"],
@@ -270,6 +268,8 @@ for i in ("Yande.re", "Konachan", "Sakugabooru"):
         "parent_id": (lambda p: 0 if p["parent_id"] is None else p["parent_id"], lambda v: None if int(v) == 0 else int(v)),
         "created_at": (lambda p: GLib.DateTime.new_from_unix_utc(p["created_at"]), lambda d: d.to_utc().to_unix()),
     }
+}
+}
 
 get_md5 = lambda b: (c := GLib.Checksum.new(0), c.update(b.get_data()), c.get_string())[-1]
 fail_url = lambda u, e=None: Toast(f"{u}\nError: {e}" if e else f"\n{u} could not be added!")
@@ -293,11 +293,11 @@ def probe(url, args):
     p.wait_async(None, finish_probe, (url, args))
 def add_favorite(p):
     now = GLib.DateTime.new_now_utc().to_unix()
-    for k, v in (("id", max((i["id"] for i in app.data["Favorites"]["Favorites"]), default=0) + 1), ("width", 0), ("height", 0), ("duration", 0), ("rating", 0), ("source", ""), ("has_children", False), ("parent_id", 0), ("tags", []), ("added", now), ("created_at", now), ("updated_at", now), ("file_url", ""), ("preview_url", ""), ("hash", ""), ("size", 0)): p.setdefault(k, v)
+    for k, v in (("id", max((i["id"] for i in app.data["Sites"]["Cardboard"]["Favorites"]), default=0) + 1), ("width", 0), ("height", 0), ("duration", 0), ("rating", 0), ("source", ""), ("has_children", False), ("parent_id", 0), ("tags", []), ("added", now), ("created_at", now), ("updated_at", now), ("file_url", ""), ("preview_url", ""), ("hash", ""), ("size", 0)): p.setdefault(k, v)
     for i in ("file_url", "preview_url"):
         if p[i] and not p[i].startswith("http"):
             p[i] = f"file://{p[i]}"
-    app.data["Favorites"]["Favorites"].append(p)
+    app.data["Sites"]["Cardboard"]["Favorites"].append(p)
     Toast(f"Post {p['id']} added to favorites!", timeout=2)
     return p
 def add_from_url(s, r, fun, url):
@@ -376,14 +376,11 @@ def add(v):
     if isinstance(v, str):
         for url in v.split("\n"):
             url = url.strip()
-            if url.startswith("https://safebooru.donmai.us"):
-                url = url.replace("https://safebooru.donmai.us", sites["Danbooru"]["url"])
-            if url.startswith("https://danbooru.donmai.us"):
-                url = url.replace("/post/show/", "/posts/")
             u = False
-            for k in sites:
-                if url.startswith(sites[k]["url"]):
-                    sites[k]["add"](k, url)
+            for k in app.sites:
+                if "URL" in app.sites[k] and url.startswith(app.sites[k]["URL"].get_text()):
+                    e = engines[app.sites[k]["Engine"].get_selected_item().get_string()]
+                    e["add"](k, e, url)
                     u = True
                     continue
             for k in extra:
@@ -422,36 +419,90 @@ def tag_widget_added(r, tag):
         e = Gtk.GestureClick(button=n + 1)
         e.connect("pressed", tag_clicked)
         tag.get_first_child().add_controller(e)
-
+engines_model = Gtk.StringList.new(tuple(engines))
+def new_site(*_):
+    na = unique_name("New Site", app.data["Sites"])
+    app.data["Sites"][na] = {"URL": "", "Append to Search": "", "Engine": "Danbooru", "Favorites": []}
+    add_site(na)
+Action("new-site", new_site)
+def do_delete_site(*_):
+    sites.remove(sites.find(delete_site.g.get_title()))
+    sites_page.remove(delete_site.g)
+    del app.data["Sites"][delete_site.g.get_title()]
+    for i in tuple(app.persist):
+        if hasattr(i, "page") and i.page == "Sites" and i.group == delete_site.g.get_title(): app.persist.remove(i)
+def rename_site(*_):
+    name = unique_name(site_rename.get_extra_child().get_text(), app.data["Sites"])
+    n = sites.find(site_rename.g.get_title())
+    sites.splice(n, 1, (name, ))
+    app.data["Sites"][name] = app.data["Sites"].pop(site_rename.g.get_title())
+    for i in app.persist:
+        if hasattr(i, "page") and i.page == "Sites" and i.group == site_rename.g.get_title(): setattr(i, "group", name)
+    site_rename.g.set_title(name)
+site_rename = EntryDialog(callback=rename_site)
+delete_site = Adw.AlertDialog(default_response="cancel")
+delete_site.connect("response", lambda d, r: (d.close(), do_delete_site() if r == "confirm" else None))
+for i in ("cancel", "confirm"): delete_site.add_response(i, i.title())
+delete_site.set_response_appearance("confirm", Adw.ResponseAppearance.DESTRUCTIVE)
+def add_site(name):
+    app.sites[name] = {}
+    if name == "Cardboard":
+        group = Adw.PreferencesGroup(title=name)
+        app.persist.append(Adw.EntryRow(title="Append to Search", text=app.data["Sites"][name]["Append to Search"]))
+        app.persist[-1].page, app.persist[-1].group, app.persist[-1].property = "Sites", name, "text"
+        group.add(app.persist[-1])
+        app.sites[name][app.persist[-1].get_title()] = app.persist[-1]
+    else:
+        box = Gtk.Box(halign=Gtk.Align.CENTER)
+        for i in (Button(callback=lambda b: (setattr(site_rename, "g", b.get_ancestor(Adw.PreferencesGroup)), site_rename.set_heading(f'Rename site "{site_rename.g.get_title()}"'), site_rename.present(app.window)), icon_name="document-edit", css_classes=("flat", ), tooltip_text="Rename"), Button(callback=lambda b: (setattr(delete_site, "g", b.get_ancestor(Adw.PreferencesGroup)), delete_site.set_heading(f'Delete site "{delete_site.g.get_title()}"'), delete_site.present(app.window)), icon_name="user-trash", css_classes=("destructive-action", "flat"), tooltip_text="Delete")): box.append(i)
+        group = Adw.PreferencesGroup(title=name, header_suffix=box)
+        for t, v in (("URL", app.data["Sites"][name]["URL"]), ("Append to Search", app.data["Sites"][name]["Append to Search"])):
+            app.persist.append(Adw.EntryRow(title=t, text=v))
+            app.persist[-1].page, app.persist[-1].group, app.persist[-1].property = "Sites", name, "text"
+            group.add(app.persist[-1])
+            app.sites[name][app.persist[-1].get_title()] = app.persist[-1]
+        app.persist.append(Adw.ComboRow(title="Engine", model=engines_model, selected=engines_model.find(app.data["Sites"][name]["Engine"])))
+        app.persist[-1].page, app.persist[-1].group, app.persist[-1].property = "Sites", name, "selected-item"
+        group.add(app.persist[-1])
+        app.sites[name][app.persist[-1].get_title()] = app.persist[-1]
+    n = 0
+    while sites_page.get_group(n) != add_group:
+        n += 1
+    sites_page.insert(group, n - 1)
+    sites.append(name)
+sites = Gtk.StringList.new()
 preferences = Adw.PreferencesDialog(search_enabled=True, content_width=530, content_height=600)
 Action("preferences", lambda *_: preferences.present(app.window), "<primary>p")
 for p in app.data:
     if p in ("Window", "Favorites", "Tabs"): continue
-    page = Adw.PreferencesPage(title=p, icon_name="preferences-system-symbolic" if p == "General" else "tag-outline-symbolic" if p == "Tags" else "folder-user-symbolic" if p == "Accounts" else "")
-    for g in app.data[p]:
-        group = Adw.PreferencesGroup(title=g)
-        if p == "Tags":
-            r = TagRow(title=g)
-            r.connect("tag-widget-added", tag_widget_added)
-            r.tags = app.data[p][g]
-            r.property = "tags"
-            r.path = p
-            group.add(r)
-            app.persist.append(r)
-            setattr(preferences, g, r)
-        else:
-            for n, v in app.data[p][g].items():
-                r = Adw.ComboRow(model=Gtk.StringList.new(tuple(sites)), selected=tuple(sites).index(v)) if n == "New Tab Site" else Adw.SwitchRow(active=v) if type(v) is bool else Adw.EntryRow(text=v)
-                r.set_title(n)
-                r.page, r.group, r.property = p, g, "active" if isinstance(r, Adw.SwitchRow) else "text" if isinstance(r, Adw.EntryRow) else "selected-item" 
-                app.persist.append(r)
-                group.add(r)
-                setattr(preferences, f"{g} {n}", r)
-        page.add(group)
+    page = Adw.PreferencesPage(title=p, icon_name="preferences-system-symbolic" if p == "General" else "tag-outline-symbolic" if p == "Tags" else "folder-user-symbolic" if p == "Accounts" else "folder-globe-symbolic" if p == "Sites" else "")
+    if p == "Sites":
+        sites_page = page
+        add_group = Adw.PreferencesGroup()
+        add_group.add(Adw.ButtonRow(action_name="app.new-site", title="Add Site", start_icon_name="list-add-symbolic"))
+        sites_page.add(add_group)
+        for i in app.data[p]: add_site(i)
+    else:
+        for g in app.data[p]:
+            group = Adw.PreferencesGroup(title=g)
+            if p == "Tags":
+                app.persist.append(TagRow(title=g))
+                app.persist[-1].connect("tag-widget-added", tag_widget_added)
+                app.persist[-1].tags, app.persist[-1].property, app.persist[-1].path = app.data[p][g], "tags", p
+                group.add(app.persist[-1])
+                setattr(preferences, g, app.persist[-1])
+            else:
+                for n, v in app.data[p][g].items():
+                    app.persist.append(Adw.ComboRow(model=sites, selected=sites.find(v)) if n == "New Tab Site" else Adw.SwitchRow(active=v) if type(v) is bool else Adw.EntryRow(text=v))
+                    app.persist[-1].set_title(n)
+                    app.persist[-1].page, app.persist[-1].group, app.persist[-1].property = p, g, "active" if isinstance(app.persist[-1], Adw.SwitchRow) else "text" if isinstance(app.persist[-1], Adw.EntryRow) else "selected-item" 
+                    group.add(app.persist[-1])
+                    setattr(preferences, f"{g} {n}", app.persist[-1])
+            page.add(group)
     preferences.add(page)
 
 search_popover = Gtk.Popover(child=Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE, css_classes=("boxed-list",)))
-site_row, page_row = Adw.ComboRow(title="Site", model=Gtk.StringList.new(tuple(sites))), Adw.SpinRow.new_with_range(1, 1000, 1)
+site_row, page_row = Adw.ComboRow(title="Site", model=sites), Adw.SpinRow.new_with_range(1, 1000, 1)
 site_row.get_template_child(Adw.ComboRow, "popover").connect("closed", lambda *_: search_popover.popdown())
 site_row.connect("notify::selected", lambda *_: search_popover.popdown())
 page_row.set_title("Page")
@@ -504,7 +555,7 @@ def search_suggestions(m, b):
 def search_changed(*_):
     if app.modifying or not search.get_text() or not getattr(preferences, "View Autocomplete").get_active(): return
     app.modifying = True
-    m = Soup.Message.new("GET", f"{sites['Danbooru']['url']}/autocomplete.json?search[query]={search_current_word()}&search[type]=tag_query&limit=15")
+    m = Soup.Message.new("GET", f"https://danbooru.donmai.us/autocomplete.json?search[query]={search_current_word()}&search[type]=tag_query&limit=15")
     response = app.session.send_and_read_async(m, GLib.PRIORITY_DEFAULT, None, search_suggestions)
 search.connect("notify::text", search_changed)
 def search_move(a, b, direction):
@@ -587,7 +638,7 @@ def tag_clicked(e, *_):
             Toast(t + "blacklist", timeout=2)
 def show_revealer(e, *_):
     p = e.get_widget()
-    if tuple(i for i in app.data["Favorites"][p.s] if i["id"] == p.o["id"]): p.favorite.set_properties(tooltip_text="Remove Favorite", icon_name="starred-symbolic")
+    if tuple(i for i in app.data["Sites"][p.s]["Favorites"] if i["id"] == p.o["id"]): p.favorite.set_properties(tooltip_text="Remove Favorite", icon_name="starred-symbolic")
     else: p.favorite.set_properties(tooltip_text="Add Favorite", icon_name="star-new-symbolic")
     p_id = get_property(p.o, "parent_id", p.s)
     has_c = get_property(p.o, "has_children", p.s)
@@ -604,11 +655,11 @@ def post_related(b):
     if has_c: Tab(q=f"parent:{p.o['id']}", s=p.s)
 def post_favorite(b):
     p = b.get_ancestor(Gtk.Overlay)
-    if tuple(i for i in app.data["Favorites"][p.s] if i["id"] == p.o["id"]):
-        app.data["Favorites"][p.s] = [i for i in app.data["Favorites"][p.s] if i["id"] != p.o["id"]]
+    if tuple(i for i in app.data["Sites"][p.s]["Favorites"] if i["id"] == p.o["id"]):
+        app.data["Sites"][p.s]["Favorites"] = [i for i in app.data["Sites"][p.s]["Favorites"] if i["id"] != p.o["id"]]
     else:
         p.o["added"] = GLib.DateTime.new_now_utc().to_unix()
-        app.data["Favorites"][p.s].append(p.o)
+        app.data["Sites"][p.s]["Favorites"].append(p.o)
         if getattr(preferences, "Favorites Download Favorites").get_active(): post_download(p)
     show_revealer(p.event)
 def finish_func(picture, paintable):
@@ -644,7 +695,7 @@ def Post(o, s, p=False):
     post.file, post.preview_file = file, preview_file
     post.p, post.o, post.s = p, o, s
     post.event.connect("enter", show_revealer)
-    if uri and not (fe and pe) and getattr(preferences, "Favorites Download Favorites").get_active() and o in app.data["Favorites"][s]: post_download(post)
+    if uri and not (fe and pe) and getattr(preferences, "Favorites Download Favorites").get_active() and o in app.data["Sites"][s]["Favorites"]: post_download(post)
     return post
 
 def catalog_activate(m, c, b):
@@ -664,7 +715,7 @@ def tab_changed(*_):
     multi.get_child("previous").set_sensitive(len(v.history) - 1 >= v.index and v.index != 0 ) 
     multi.get_child("next").set_sensitive(len(v.history) > v.index + 1) 
     q = v.history[v.index]
-    site_row.set_selected(tuple(sites).index(q[2]))
+    site_row.set_selected(sites.find(q[2]))
     page_row.set_value(q[1])
     if not isinstance(q[0], list):
         app.modifying = True
@@ -695,7 +746,7 @@ def tab_operation(a, b=False, t=False):
             reopen_action.set_enabled(bool(app.closed))
         return
     q = t.history[t.index]
-    if "open-current" in a.get_name(): return launch(sites[q[2]]["get_url"](q))
+    if "open-current" in a.get_name(): return launch(app.data_folder if q[2] == "Cardboard" else app.sites[q[2]]["URL"].get_text() + engines[app.sites[q[2]]["Engine"].get_selected_item().get_string()]["get_url"](q) + app.sites[q[2]]["Append to Search"].get_text())
     if isinstance(q[0], dict) and not hasattr(t.get_child().get_child(), "favorite"):
         tab_load(t)
         return GLib.idle_add(lambda *_: tab_operation(a, t=t))
@@ -716,7 +767,7 @@ def tab_setup_menu(v, t):
     v.get_menu_model().remove_all()
     tab_menu, tab_context_menu = Gio.Menu.new(), Gio.Menu.new()
     tab_context_menu.append("Open in Browser", "app.context-open-current")
-    tab_context_menu.append(("Remove Favorite" if tuple(i for i in app.data["Favorites"][q[2]] if i["id"] == q[0]["id"]) else "Add Favorite") if isinstance(q[0], dict) else ("Remove Bookmark" if q[0] in getattr(preferences, "Bookmarks").tags else "Add Bookmark"), "app.context-favorite")
+    tab_context_menu.append(("Remove Favorite" if tuple(i for i in app.data["Sites"][q[2]]["Favorites"] if i["id"] == q[0]["id"]) else "Add Favorite") if isinstance(q[0], dict) else ("Remove Bookmark" if q[0] in getattr(preferences, "Bookmarks").tags else "Add Bookmark"), "app.context-favorite")
     tab_menu.append("Unpin Tab" if v.t.get_pinned() else "Pin Tab", "app.context-pin")
     tab_menu.append("Close Tab", "app.context-close")
     for i in (tab_context_menu, tab_menu): v.get_menu_model().append_section(None, i)
@@ -730,8 +781,8 @@ def tab_load(t=None, page=False, q=[]):
         t.index = len(t.history)
         t.history.append(q)
     q = t.history[t.index]
-    if content and not page and hasattr(content, "q") and content.q == q: return
-    if page and not (q[3] and q[2] != "Favorites"):
+    if not page and hasattr(content, "q") and content.q == q: return
+    if page and not (q[3] and q[2] != "Cardboard"):
         q[1] += 1
     if t == view.get_selected_page():
         GLib.idle_add(multi.get_child("previous").set_sensitive, len(t.history) - 1 >= t.index and t.index != 0) 
@@ -743,7 +794,7 @@ def tab_load(t=None, page=False, q=[]):
         if isinstance(q[0], str):
             if not page: GLib.idle_add(t.get_child().set_child, Adw.Spinner())
             GLib.idle_add(t.set_loading, True)
-            if q[2] == "Favorites":
+            if q[2] == "Cardboard":
                 q[3] = fetch_favorite_catalog(q[0])
                 count, q[3] = len(q[3]), q[3][limit * (q[1] - 1):] if q[1] > 1 else q[3]
             else:
@@ -775,7 +826,7 @@ def tab_load(t=None, page=False, q=[]):
             content.get_child().connect("edge-reached", catalog_load_more)
         for i in catalog:
             if any(it in get_property(i, "tags", i[1]) for it in getattr(preferences, "Blacklist").tags): continue
-            GLib.idle_add(masonrybox_add, *(content, Post(i[0] if q[2] == "Favorites" else i, i[1] if q[2] == "Favorites" else q[2], True)))
+            GLib.idle_add(masonrybox_add, *(content, Post(i[0] if q[2] == "Cardboard" else i, i[1] if q[2] == "Cardboard" else q[2], True)))
         total_pages = -(-content.count[1] // limit)
         m = f"Page {q[1]} of {total_pages}"
         Toast(m, message=f'{GLib.DateTime.new_now_local().format("%R")} in {q[2]} "{q[0]}" {m}', timeout=1)
@@ -784,7 +835,7 @@ def tab_load(t=None, page=False, q=[]):
     GLib.timeout_add(200, t.set_loading, False)
     GLib.timeout_add(200, suggestions_popover.popdown)
     if t.get_child().get_mapped():
-        GLib.idle_add(site_row.set_selected, tuple(sites).index(q[2])) 
+        GLib.idle_add(site_row.set_selected, sites.find(q[2])) 
         GLib.idle_add(page_row.set_value, q[1])
 def Tab(*_, q=None, p=1, s=""):
     tab = view.add_page(Adw.Bin())
@@ -822,6 +873,7 @@ download.connect("activated", lambda *_: post_download(edit.p))
 group.add(download)
 pages[1].add(group)
 dates = tuple(DateRow(title=i.title().split(" || ")[0].replace("_", " "), name=i) for i in ("added", "created_at", "updated_at || changed"))
+for i in dates: i.calendar.set_name(i.get_name())
 rating_group = Adw.ToggleGroup(name="rating", valign=Gtk.Align.CENTER)
 editable = ((TagRow(name="tags || tag_string", title="Tags"), "tags"),
             (Adw.EntryRow(title="Source", name="source"), "text"),
@@ -836,6 +888,7 @@ def sync_post(*_):
     if app.modifying: return
     app.modifying = True
     p = edit.p
+    e = engines[p.s if p.s == "Cardboard" else app.sites[p.s]["Engine"].get_selected_item().get_string()]
     for l in (editable, dates):
         for i in l:
             w, prop = i.calendar if hasattr(i, "calendar") else i[0], "date" if hasattr(i, "calendar") else i[1]
@@ -843,12 +896,12 @@ def sync_post(*_):
             v = w.get_property(prop)
             names = w.get_name().split(" || ")
             for name in names:
-                if name in sites[p.s]["overrides"] and callable(sites[p.s]["overrides"][name][1]):
-                    v = sites[p.s]["overrides"][name][1](v)
+                if name in e["overrides"] and callable(e["overrides"][name][1]):
+                    v = e["overrides"][name][1](v)
             for name in names:
                 if name in p.o:
                     p.o[name] = v.to_utc().to_unix() if isinstance(v, GLib.DateTime) else v
-    app.data["Favorites"][p.s] = [p.o if i["id"] == p.o["id"] else i for i in app.data["Favorites"][p.s]]
+    app.data["Sites"][p.s]["Favorites"] = [p.o if i["id"] == p.o["id"] else i for i in app.data["Sites"][p.s]["Favorites"]]
     app.modifying = False
 for i in dates: i.calendar.connect(f"notify::date", sync_post)
 for i in editable: i[0].connect(f"notify::{i[1]}", sync_post)
@@ -906,7 +959,7 @@ def show_edit(b, *_):
         i[0].set_visible(v is not None)
         if v != None: i[0].set_property(i[1], v)
     edit.present(app.window)
-    app.data["Favorites"][p.s] = [p.o if i["id"] == p.o["id"] else i for i in app.data["Favorites"][p.s]]
+    app.data["Sites"][p.s]["Favorites"] = [p.o if i["id"] == p.o["id"] else i for i in app.data["Sites"][p.s]["Favorites"]]
     app.modifying = False
 
 def apply_colors(*_):
@@ -917,10 +970,9 @@ def apply_colors(*_):
     v = v.get_paintable() if hasattr(v, "get_paintable") else None
     GLib.idle_add(set_colors, v, True)
     return False
-for i in app.data["Tabs"]:
-    t = Tab(q=i[0], p=i[1], s=i[2])
-    view.set_page_pinned(t, i[3])
+for i in app.data["Tabs"]: view.set_page_pinned(Tab(q=i[0], p=i[1], s=i[2]), i[3])
 if not view.get_selected_page(): Tab()
 getattr(preferences, "View Post Colors Theming").bind_property("active", Action("colors", apply_colors, stateful=False), "state", GObject.BindingFlags.DEFAULT | GObject.BindingFlags.SYNC_CREATE, lambda b, v: GLib.Variant("b", v))
 GLib.idle_add(tab_changed)
 app.run()
+if not app.shutdown: data_save(True)
