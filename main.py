@@ -1,15 +1,48 @@
 #!/usr/bin/python3
 from json import loads as json
+from html.parser import HTMLParser
 
 from AppUtils import *
 
 style = """
+thread .heading { color: var(--red-3); font-weight: bold; }
+.quote, .greentext { color: var(--green-4); }
+.rquote { color: var(--red-2); font-style: italic; }
+.url { text-decoration-style: unset; text-decoration-color: transparent; text-decoration: none; color: var(--blue-4); }
+.spoiler { padding: 0px 4px; margin: 0px 2px; background: var(--dark-5); color: var(--dark-5); transition: color 0.3s; border-radius: 4px; }
+.spoiler:hover { color: var(--light-1); }
+.bold { font-weight: bold; }
+.italic { font-style: italic; }
+.code { font-family: monospace; }
+
+thread { border-spacing: 10px; font-size: 20px; margin-bottom: 10px; }
+reply header .url { font-size: 15px; }
+reply { transition: background-color 0.3s; margin: 0px 10px; border-radius: 10px; padding: 10px; background: var(--shade-color); }
+.highlight { background: color-mix(in srgb, var(--shade-color) 90%, var(--window-fg-color)); }
+reply:first-child { background: none; margin: 0px;}
+reply header > label:first-child { font-weight: bold; }
+reply media { margin: 4px 0px; min-width: 120px; min-height: 50px; }
+.thread-preview media,
+.thread-preview picture { border-radius: 0px; }
+.thread-preview {
+  box-shadow: var(--card-shade-color) 0px 1px 5px 1px, var(--card-shade-color) 0px 2px 14px 3px;
+  border-radius: 13px;
+}
+.thread-preview label { font-size: 20px; }
+.thread-preview viewport  { padding: 10px; }
+
+media > image { color: white; }
+
 tabview :not(masonrybox) .spinner { min-width: 200px; min-height: 400px; }
+reply media > label,
 tabview masonrybox media label { margin: 0px 0px 8px 8px; padding: 6px 10px 6px 10px; border-radius: 14px; font-weight: bold; }
+reply media > revealer > box,
 tabview masonrybox media box { border-spacing: 6px; }
 media > revealer > box,
 widget > media picture { margin: 6px; }
+reply media > revealer > box > button,
 masonrybox button { border-radius: 100px; }
+reply media > revealer > box > button,
 widget > media revealer > box,
 masonrybox button,
 media > label { background: rgba(0, 0, 0, 0.3); color: white; }
@@ -76,22 +109,25 @@ toolbarview {
 limit, ratings = 30, ("General", "Sensitive", "Questionable", "Explicit")
 
 def shutdown(*_):
-    app.shutdown = True
-    app.data["Tabs"] = tuple((q[0], q[1], q[2], i.get_pinned()) for i in view.get_pages() for q in [i.history[i.index]])
-    data_save()
-    if getattr(preferences, "Favorites Delete Unused").get_active():
-        for i in os.listdir(app.data_folder.peek_path()):
-            if i in (app.name, f"{app.name}~"): continue
-            u = False
-            for site in app.data["Sites"]:
-                for s, v in app.data[site]["Favorites"].items():
-                    for p in v:
-                        _hash = get_property(p, "hash", s)
-                        if i in (f"{_hash}.{get_property(p, 'file_url', s).rsplit('.')[-1]}", f"preview-{_hash}.{get_property(p, 'preview_url', s).rsplit('.')[-1]}"):
-                            u = True
-            if not u:
-                print("Deleting", i)
-                app.data_folder.get_child(i).delete()
+    try:
+        app.shutdown = True
+        app.data["Tabs"] = tuple((q[0], q[1], q[2], i.get_pinned()) for i in view.get_pages() for q in [i.history[i.index]])
+        data_save()
+        if getattr(preferences, "Favorites Delete Unused").get_active():
+            for i in os.listdir(app.data_folder.peek_path()):
+                if i in (app.name, f"{app.name}~"): continue
+                u = False
+                for site in app.data["Sites"]:
+                    for s, v in app.data[site]["Favorites"].items():
+                        for p in v:
+                            _hash = get_property(p, "hash", s)
+                            if i in (f"{_hash}.{get_property(p, 'file_url', s).rsplit('.')[-1]}", f"preview-{_hash}.{get_property(p, 'preview_url', s).rsplit('.')[-1]}"):
+                                u = True
+                if not u:
+                    print("Deleting", i)
+                    app.data_folder.get_child(i).delete()
+    except:
+        app.shutdown = False
 
 app = App(shortcuts={"General": (("Add File", "app.add-file"), ("Add URL", "app.add-url"), ("Paste File/Image/URL", "<primary>v"), ("Keyboard Shortcuts", "app.shortcuts"), ("Preferences", "app.preferences"), ("Fullscreen", "app.fullscreen")), "Tabs": (("Overview", "app.overview"), ("Open in Browser", "app.open-current"), ("New Tab", "app.new-tab"), ("Close Tab", "app.close"), ("Reopen Closed Tab", "app.reopen-tab"), ("Toggle Favorite/Bookmark", "app.favorite"), ("Post More", "app.more"), ("Download Post", "app.download"))},
           shutdown=shutdown,
@@ -110,11 +146,14 @@ app.modifying, app.sites, app.shutdown = False, {}, False
 def get_property(o, k, s):
     if " || " in k:
         k = k.split(" || ")[0]
-    e = engines[s if s == "Cardboard" else app.sites[s]["Engine"].get_selected_item().get_string()]
+    site = app.sites[s]
+    e = engines[s if s == "Cardboard" else site["Engine"].get_selected_item().get_string()]
     if k in e["overrides"]:
-        if callable(e["overrides"][k]): return e["overrides"][k](o)
-        if callable(e["overrides"][k][0]): return e["overrides"][k][0](o)
-        return e["overrides"][k]
+        f = e["overrides"][k][0] if isinstance(e["overrides"][k], tuple) else e["overrides"][k]
+        if callable(f):
+            if "url_dependant" in e and k in e["url_dependant"]: return f(o, site["URL"].get_text())
+            else: return f(o)
+        else: return f
     if k in o: return o[k]
 
 def fetch_favorite_catalog(queries):
@@ -147,64 +186,88 @@ def fetch_favorite_catalog(queries):
     catalog.sort(key=k, reverse=not "_asc" in s)
     return catalog
 
-def fetch_online_catalog(site, queries, page, count=False):
+def fetch_online(site, queries, page, count=False):
     catalog = [0, []]
-    e = engines[app.sites[site]["Engine"].get_selected_item().get_string()]
+    en = app.sites[site]["Engine"].get_selected_item().get_string()
+    e = engines[en]
     url, append = app.sites[site]["URL"].get_text(), app.sites[site]["Append to Search"].get_text()
     for query in queries.split(" + "):
-        response = json(app.session.send_and_read(Soup.Message.new("GET", url + e["fetch_catalog"](query, page) + append)).get_data().decode("utf-8"))
+        func = "fetch_thread" if "parent:" in query and "fetch_thread" in e else "fetch_post" if "post:" in query  and "fetch_post" in e else "fetch_catalog"
+        if en == "FoolFuuka" and func == "fetch_catalog":
+            response = {}
+            p = (page - 1) * int(limit / 10) + 1
+            for n in range(p, p + int(limit / 10)): response.update(json(app.session.send_and_read(Soup.Message.new("GET", e[func](query, n, url) + append)).get_data().decode("utf-8")))
+        else:
+            u = e[func](query, page, url) if "url_dependant" in e and func in e["url_dependant"] else (url + e[func](query, page))
+            response = json(app.session.send_and_read(Soup.Message.new("GET", u + append)).get_data().decode("utf-8"))
+        c = e[func.replace("fetch", "get")](response) if func.replace("fetch", "get") in e else response
+        if func == "fetch_catalog" and query and "filter_catalog" in e and e["filter_catalog"]:
+            c = tuple(i for i in c if query in get_property(i, "comment", site))
+        catalog[1] += c
         if count:
-            n = response
-            if "fetch_count" in e:
-                n = app.session.send_and_read(Soup.Message.new("GET", url + e["fetch_count"](query) + append)).get_data().decode("utf-8")
-            if "get_count" in e:
-                n = e["get_count"]((n, response))
-            catalog[0] += n
-        catalog[1] += e["get_catalog"](response) if "get_catalog" in e else response
-    if " + " in queries: catalog[1].sort(key=lambda i: i["id"], reverse=True)
+            if not "get_count" in e or func in ("fetch_thread", "fetch_post"):
+                catalog[0] = len(catalog[1])
+            else:
+                n = response
+                if "fetch_count" in e:
+                    n = app.session.send_and_read(Soup.Message.new("GET", url + e["fetch_count"](query) + append)).get_data().decode("utf-8")
+                if "get_count" in e:
+                    catalog[0] += e["get_count"]((n, response))
+                if isinstance(n, int):
+                    catalog[0] += n
+    if " + " in queries: catalog[1].sort(key=lambda i: get_property(i, "id", site), reverse=True)
     return catalog
 
-def finish_adding_post(s, r, st):
-    b = s.send_and_read_finish(r)
-    if not b: return Toast(f"Couldn't add {url}! Status: {r.get_status()}")
-    p = json(b.get_data().decode("utf-8"))
-    p = p["post"] if "post" and "@attributes" in p else p
-    p = p[0] if isinstance(p, list) else p
-    e = engines[app.sites[st]["Engine"].get_selected_item().get_string()]
-    if not "file_url" in p or "file_url" in e["overrides"] and not e["overrides"]["file_url"][0](p): return Toast(f"Couldn't add {url}: File URL not in post!")
-    p["added"] = GLib.DateTime.new_now_utc().to_unix()
-    app.data["Sites"][st]["Favorites"].append(p)
-    Toast(f"{p['id']} added to {st}'s favorites", timeout=2)
-def general_add(url):
+def general_add(site, url):
     if "?" in url and "tags=" in url:
         tags = GLib.Uri.parse_params(url.split("?")[-1], -1, "&", GLib.UriParamsFlags.NONE)["tags"].replace(" + ", " ")
         if tags in getattr(preferences, "Bookmarks").tags: Toast(f"{tags} already in bookmarks!")
         else:
             getattr(preferences, "Bookmarks").tags += [tags]
-            Toast(f"{tags} added to bookmarks", timeout=2)
-    else: Toast(f"Couldn't add {url}")
-def danbooru_add(s, e, url):
-    url = url.replace("/post/show/", "/posts/")
-    if "/posts/" in url:
-        p_id = url.split("?")[0].split("/posts/")[-1]
-        if tuple(i for i in app.data["Sites"][s]["Favorites"] if i["id"] == p_id): return Toast(f"{p_id} already in {s}'s favorites!", timeout=0)
-        r = app.session.send_and_read_async(Soup.Message.new("GET", f"{url.split('?')[0]}.json"), GLib.PRIORITY_DEFAULT, None, finish_adding_post, s)
-    else: general_add(url)
-def gelbooru_add(s, e, url):
-    if "id=" in url:
+        return Toast(f"{tags} added to bookmarks", timeout=2)
+    en = app.sites[site]["Engine"].get_selected_item().get_string()
+    p_id = False
+    if en == "Danbooru":
+        url = url.replace("/post/show/", "/posts/")
+        if "/posts/" in url:
+            p_id = url.split("?")[0].split("/posts/")[-1]
+    if en == "Gelbooru" and "id=" in url:
         p_id = GLib.Uri.parse_params(url.split("?")[-1], -1, "&", GLib.UriParamsFlags.NONE)["id"]
-        if tuple(i for i in app.data["Sites"][s]["Favorites"] if i["id"] == p_id):
-            return Toast(f"{p_id} already in {s}'s favorites!")
-        r = app.session.send_and_read_async(Soup.Message.new("GET", app.sites[s]["URL"].get_text() + e["fetch_catalog"](f"id:{p_id}", 1) + app.sites[s]["Append to Search"].get_text()), GLib.PRIORITY_DEFAULT, None, finish_adding_post, s)
-    else: general_add(url)
-def moebooru_add(s, e, url):
-    if "/post/show/" in url:
+    if en == "Moebooru" and "/post/show/" in url:
         p_id = url.split("?")[0].split("/post/show/")[-1].split("/")[0]
-        if tuple(i for i in app.data["Sites"][s]["Favorites"] if i["id"] == p_id):
-            return Toast(f"{p_id} already in {s}'s favorites!", timeout=0)
-        r = app.session.send_and_read_async(Soup.Message.new("GET", app.sites[s]["URL"].get_text() + e["fetch_catalog"](f"id:{p_id}", 1) + app.sites[s]["Append to Search"].get_text()), GLib.PRIORITY_DEFAULT, None, finish_adding_post, s)
-    else: general_add(url)
-
+    if p_id:
+        if tuple(i for i in app.data["Sites"][site]["Favorites"] if i["id"] == int(p_id)): return Toast(f"{p_id} already in {site}'s favorites!", timeout=0)
+        query = f"id:{p_id}"
+    elif "thread/" in url or "res/" in url:
+        if en == "FoolFuuka":
+            p_id = url.split("thread/")[1].split(".")[0].split("#")[0]
+            post = url.split("#")
+        if en == "vichan":
+            p_id = url.split("res/")[1].split(".")[0].split("#")[0]
+            post = url.split("#")
+        if en == "4chan":
+            p_id = url.split("thread/")[1].split(".")[0].split("#")[0]
+            post = url.split("p#")
+        p_id = int(p_id.strip("/"))
+        post = post[1].strip("q").strip("p") if len(post) > 1 else p_id
+        query = f"parent:{p_id}"
+    try:
+        p = fetch_online(site, query, 0)[1]
+        if "fetch_thread" in engines[en]:
+            p = next((i for i in p if int(get_property(i, "og_id", site)) == int(post)), None)
+            u = app.sites[site]["URL"].get_text()
+            new = {}
+            for i in engines[en]["overrides"]:
+                if i.startswith("og_"): new.setdefault(i.lstrip("og_"), engines[en]["overrides"][i](p, u) if "url_dependant" in engines[en] and i in engines[en]["url_dependant"] else engines[en]["overrides"][i](p))
+            p = new
+        else:
+            p = p[0]
+        p["added"] = GLib.DateTime.new_now_utc().to_unix()
+        app.data["Sites"][site]["Favorites"].append(p)
+        return Toast(f"{p['id']} added to {site}'s favorites", timeout=2)
+    except Exception as e: return Toast(f"URL: {url}\nError: {e}")
+match_embed = regex(r'src="(.*?)"').search
+match_href = regex(r'href="(.*?)"').search
 engines = {
 "Cardboard": {
     "overrides": {
@@ -214,7 +277,6 @@ engines = {
         "updated_at": (lambda p: GLib.DateTime.new_from_unix_utc(p["updated_at"]), lambda d: d.to_utc().to_unix()),},
 },
 "Danbooru": {
-    "add": danbooru_add,
     "fetch_catalog": lambda t, p: f"/posts.json?limit={limit}&page={p}&tags={t}",
     "get_catalog": lambda c: tuple(i for i in c if "file_url" in i and not i["file_url"].endswith("swf")),
     "fetch_count": lambda t: f"/counts/posts.json?tags={t}",
@@ -237,7 +299,6 @@ engines = {
     }
 },
 "Gelbooru": {
-    "add": gelbooru_add,
     "fetch_catalog": lambda t, p: f"/index.php?limit={limit}&pid={p - 1}&page=dapi&s=post&q=index&json=1&tags={t}",
     "get_catalog": lambda c: c["post"] if "post" in c else [],
     "get_count": lambda c: c[1]["@attributes"]["count"],
@@ -254,7 +315,6 @@ engines = {
     }
 },
 "Moebooru": {
-    "add": moebooru_add,
     "fetch_catalog": lambda t, p: f"/post.json?limit={limit}&page={p}&json=1&tags={t}",
     "fetch_count": lambda t: f"/post.xml?tags={t}",
     "get_count": lambda c: int(xml(c[0]).attrib["count"]),
@@ -268,7 +328,108 @@ engines = {
         "parent_id": (lambda p: 0 if p["parent_id"] is None else p["parent_id"], lambda v: None if int(v) == 0 else int(v)),
         "created_at": (lambda p: GLib.DateTime.new_from_unix_utc(p["created_at"]), lambda d: d.to_utc().to_unix()),
     }
-}
+},
+"FoolFuuka": {
+    "fetch_catalog": lambda query, page, url: f"{url.rsplit('/', 2)[0]}/_/api/chan/index/?board={url.rsplit('/', 2)[1]}&page={page}",
+    "fetch_thread": lambda query, page, url: f"{url.rsplit('/', 2)[0]}/_/api/chan/thread/?board={url.rsplit('/', 2)[1]}&num={query.split('parent:')[-1]}",
+    "fetch_post": lambda query, page, url: f"{url.rsplit('/', 2)[0]}/_/api/chan/post/?board={url.rsplit('/', 2)[1]}&num={query.split('post:')[-1]}",
+    "get_count": lambda c: int(tuple(c[0])[0]),
+    "get_catalog": lambda c: tuple(i["op"] for i in c.values()),
+    "get_thread": lambda c: ([c[next(iter(c))]["op"]] + ([c[next(iter(c))]["posts"][i] for i in c[next(iter(c))]["posts"]] if "posts" in c[next(iter(c))] else [])) if len(c) == 1 else [],
+    "get_post": lambda c: [c] if c["media"] else [],
+    "get_url": lambda q: (s := q[0]["parent_id" if "parent_id" in q[0] else "thread_num"] if isinstance(q[0], dict) else q[0].split(":")[1] if "parent:" in q[0] else False, print(s), f"thread/{s}" if s else "")[-1],
+    "filter_catalog": True,
+    "url_dependant": ("fetch_catalog", "fetch_thread", "fetch_post", "og_source"),
+    "overrides": {
+        "size": lambda p: f"{p['width']}x{p['height']} ({GLib.format_size(p['size'])})",
+        "duration": lambda p: GLib.DateTime.new_from_unix_utc(p["duration"]).format("%T") if p["duration"] > 0 else None,
+        "created_at": (lambda p: GLib.DateTime.new_from_unix_utc(p["created_at"]), lambda d: d.to_utc().to_unix()),
+        "updated_at": (lambda p: GLib.DateTime.new_from_unix_utc(p["updated_at"]), lambda d: d.to_utc().to_unix()),
+        "comment": lambda o: (f"<b>{o['title']}</b><br>" if "title" in o and o["title"] else "") + o["comment_processed"],
+        "country": lambda o: o["poster_country"],
+        "country_name": lambda o: o["poster_country_name"],
+        "poster_id": lambda o: o["poster_hash"],
+        "og_tags": lambda o: [o["media"]["media_filename"], o["media"]["media_orig"]],
+        "og_rating": lambda o: 0,
+        "og_source": lambda o, url: f"{url}thread/{o['thread_num']}",
+        "og_id": lambda o: o["num"],
+        "og_height": lambda o: int(o["media"]["media_h"]),
+        "og_width": lambda o: int(o["media"]["media_w"]),
+        "og_hash": lambda o: o["media"]["media_hash"],
+        "og_size": lambda o: int(o["media"]["media_size"]),
+        "og_duration": lambda o: 0,
+        "og_file_url": lambda o: o["media"]["media_link"],
+        "og_preview_url": lambda o: o["media"]["thumb_link"],
+        "og_created_at": lambda o: o["timestamp"],
+        "og_updated_at": lambda o: o["timestamp"],
+        "og_parent_id": lambda o: int(o["thread_num"]) if o["thread_num"] != o["num"] else 0,
+        "og_has_children": lambda o: o["op"] == "1"
+        ,},
+},
+"vichan": {
+    "fetch_catalog": lambda *_: "catalog.json",
+    "fetch_thread": lambda query, page: f"res/{query.split('parent:')[-1]}.json",
+    "get_catalog": lambda c: tuple(t for i in c for t in i["threads"]),
+    "get_thread": lambda c: c["posts"],
+    "get_url": lambda q: (s := q[0]["id" if "id" in q[0] else "resto"] if isinstance(q[0], dict) else q[0].split(":")[1] if "parent:" in q[0] else False, print(s), f"res/{s}.html" if s else "")[-1],
+    "filter_catalog": True,
+    "url_dependant": ("og_source", "og_file_url", "og_preview_url"),
+    "overrides": {
+        "size": lambda p: f"{p['width']}x{p['height']} ({GLib.format_size(p['size'])})",
+        "duration": lambda p: GLib.DateTime.new_from_unix_utc(p["duration"]).format("%T") if p["duration"] > 0 else None,
+        "created_at": (lambda p: GLib.DateTime.new_from_unix_utc(p["created_at"]), lambda d: d.to_utc().to_unix()),
+        "updated_at": (lambda p: GLib.DateTime.new_from_unix_utc(p["updated_at"]), lambda d: d.to_utc().to_unix()),
+        "comment": lambda o: (f"<b>{o['sub']}</b><br>" if "sub" in o else "") + (o["com"] if "com" in o else ""),
+        "poster_id": lambda o: o["id"],
+        "og_tags": lambda o: [o["filename"] + o["ext"], str(o["tim"]) + o["ext"]] if "filename" in o else [],
+        "og_rating": lambda o: 0,
+        "og_source": lambda o, url: f"{url}thread/{o['no'] if o['resto'] == 0 else o['resto']}",
+        "og_id": lambda o: o["no"],
+        "og_height": lambda o: o["h"] if "h" in o else 100,
+        "og_width": lambda o: o["w"] if "w" in o else 100,
+        "og_hash": lambda o: o["md5"] if "md5" in o else str(o["no"]),
+        "og_size": lambda o: o["fsize"] if "fsize" in o else 0,
+        "og_duration": lambda o: 0,
+        "og_file_url": lambda o, url: ("https://" + match_embed(o["embed"]).group(1).strip("https:").strip("//")) if "embed" in o and "src" in o["embed"] else f"{url}src/{o['tim']}{o['ext']}",
+        "og_preview_url": lambda o, url: f"{url}static/deleted.png" if "filedeleted" in o and o["filedeleted"] == 1 else f"{url}static/spoiler.png" if "spoiler" in o and o["spoiler"] == 1 else ("https://" + match_embed(o["embed"]).group(1).strip("https:").strip("//")) if "embed" in o and "src" in o["embed"] else f"{url}thumb/{o['tim']}{'.jpg' if Gio.content_type_guess(o['ext'])[0].startswith('video') else o['ext']}",
+        "og_created_at": lambda o: o["time"],
+        "og_updated_at": lambda o: o["time"],
+        "og_parent_id": lambda o: o["resto"],
+        "og_has_children": lambda o: o["resto"] == 0
+        ,},
+},
+"4chan": {
+    "fetch_catalog": lambda *_: "catalog.json",
+    "fetch_thread": lambda query, page: f"thread/{query.split('parent:')[-1]}.json",
+    "get_catalog": lambda c: [thread for i in c for thread in i["threads"]],
+    "get_thread": lambda c: c["posts"],
+    "get_url": lambda q: (s := q[0]["parent_id" if "parent_id" in q[0] else "no" if q[0]["resto"] == 0 else "resto"] if isinstance(q[0], dict) else q[0].split(":")[1] if "parent:" in q[0] else False, print(s), f"thread/{s}" if s else "")[-1],
+    "filter_catalog": True,
+    "url_dependant": ("og_source", "og_file_url", "og_preview_url"),
+    "overrides": {
+        "size": lambda p: f"{p['width']}x{p['height']} ({GLib.format_size(p['size'])})",
+        "duration": lambda p: GLib.DateTime.new_from_unix_utc(p["duration"]).format("%T") if p["duration"] > 0 else None,
+        "created_at": (lambda p: GLib.DateTime.new_from_unix_utc(p["created_at"]), lambda d: d.to_utc().to_unix()),
+        "updated_at": (lambda p: GLib.DateTime.new_from_unix_utc(p["updated_at"]), lambda d: d.to_utc().to_unix()),
+        "comment": lambda o: (f"<b>{o['sub']}</b><br>" if "sub" in o else "") + (o["com"] if "com" in o else ""),
+        "poster_id": lambda o: o["id"] if "id" in o else None,
+        "og_tags": lambda o: [o["filename"] + o["ext"], str(o["tim"]) + o["ext"]] if "filename" in o else [],
+        "og_rating": lambda o: 0,
+        "og_source": lambda o, url: f"{url}thread/{o['no'] if o['resto'] == 0 else o['resto']}",
+        "og_id": lambda o: o["no"],
+        "og_height": lambda o: o["h"] if "h" in o else 100,
+        "og_width": lambda o: o["w"] if "w" in o else 100,
+        "og_hash": lambda o: o["md5"] if "md5" in o else str(o["no"]),
+        "og_size": lambda o: o["fsize"] if "fsize" in o else 0,
+        "og_duration": lambda o: 0,
+        "og_file_url": lambda o, url: f"https://i.4cdn.org/{url.rsplit('/', 2)[1]}/{o['tim']}{o['ext']}",
+        "og_preview_url": lambda o, url: f"https://i.4cdn.org/{url.rsplit('/', 2)[1]}/{o['tim']}s.jpg",
+        "og_created_at": lambda o: o["time"],
+        "og_updated_at": lambda o: o["time"],
+        "og_parent_id": lambda o: o["resto"],
+        "og_has_children": lambda o: o["resto"] == 0
+        ,},
+},
 }
 
 get_md5 = lambda b: (c := GLib.Checksum.new(0), c.update(b.get_data()), c.get_string())[-1]
@@ -287,7 +448,7 @@ def finish_probe(p, result, params):
             i["hash"] = get_md5(app.session.send_and_read(Soup.Message.new("GET", url)))
         add_favorite(i)
     except Exception as e: return Toast(f"URL: {url}\nError: {e}")
-def probe(url, args):
+def probe(url, args={}):
     Toast(f"Probing {url}", timeout=2)
     p = Gio.Subprocess.new(("ffprobe", "-v", "quiet", "-show_entries", "stream=width,height:format=size,duration", "-of", "json", "-i", url), Gio.SubprocessFlags.STDOUT_PIPE)
     p.wait_async(None, finish_probe, (url, args))
@@ -299,6 +460,7 @@ def add_favorite(p):
             p[i] = f"file://{p[i]}"
     app.data["Sites"]["Cardboard"]["Favorites"].append(p)
     Toast(f"Post {p['id']} added to favorites!", timeout=2)
+    print(p)
     return p
 def add_from_url(s, r, fun, url):
     b = s.send_and_read_finish(r)
@@ -318,26 +480,15 @@ def twitter_add(b, url):
         for i in h.findall(".//div[@id='m'][@class='main-tweet']//a[@class='still-image']"): medias.append(i.attrib["href"].split("%2F")[1])
     else:
         if "pbs.twimg.com" in url and "format=" in url:
-            i = f'{url.split("/")[-1].split("?")[0]}.{url.split("format=")[1].split("&")[0]}' 
+            i = f'{url.split("/")[-1].split("?")[0]}.{url.split("format=")[1].split("&")[0]}'
         elif "pbs.twimg.com" in url:
-            i = url.split("/")[-1].split("?")[0] 
+            i = url.split("/")[-1].split("?")[0]
         else:
             i = url.split("%2F")[1]
         medias.append(i)
     for i in medias:
         file_url = f'https://pbs.twimg.com/media/{i.split(".")[0]}?format={i.split(".")[-1].split("%")[0]}&name=orig'
         probe(file_url, {"source": url.replace("nitter.net", "x.com") if "/status/" in url else file_url, "preview_url": file_url.replace("orig", "small")})
-def chan_add(b, url):
-    if "warosu" in url:
-        p = url.rsplit("/", 1)[-1].split("#p")[-1]
-        file_url = b.get_data().decode("utf-8").split(f"alt={p}")[0].rsplit("href=", 1)[1].split(">")[0]
-        probe(file_url, {"source": url, "preview_url": file_url.replace("img", "thumb").rsplit("/", 1)[0] + "/" + file_url.rsplit("/", 1)[-1].rsplit(".", 1)[0] + "s.jpg", "created_at": int(file_url.rsplit("/", 1)[-1].split(".")[0][:10])})
-    elif "desuarchive.org" in url:
-        p = json(b.get_data().decode("utf-8"))
-        if not p["media"]: return Toast(f"No media in {url}")
-        url = f'https://desuarchive.org/{p["board"]["shortname"]}/thread/{p["thread_num"]}{("#" + p["num"]) if p["num"] != p["thread_num"] else ""}'
-        add_favorite({"file_url": p["media"]["media_link"], "height": int(p["media"]["media_h"]), "width": int(p["media"]["media_h"]), "preview_url": p["media"]["thumb_link"], "hash": p["media"]["media_hash"], "created_at": p["timestamp"],  "updated_at": p["timestamp"], "source": url, "size": int(p["media"]["media_size"])})
-    else: fail_url(url)
 def artstation_add(b, url):
     res = json(b.get_data().decode("utf-8"))
     created_at, updated_at = GLib.DateTime.new_from_iso8601(res["created_at"]).to_utc().to_unix(), GLib.DateTime.new_from_iso8601(res["updated_at"]).to_utc().to_unix()
@@ -366,7 +517,6 @@ def kemono_add(b, url):
         if Gio.content_type_guess(i["name"])[0].startswith(("video", "image")): probe(f'{i["server"]}/data{i["path"]}', {"hash": i["path"].split("/")[-1].split(".")[0], "source": url, "preview_url":f'https://img.kemono.cr/thumbnail/data{i["path"]}', "created_at": created_at, "updated_at": updated_at})
 extra = {"Zerochan": (lambda u: u.startswith("https://www.zerochan.net/") and u.split("/")[-1].isdigit(), lambda u: app.session.send_and_read_async(Soup.Message.new("GET", f"{u}?&json"), GLib.PRIORITY_DEFAULT, None, add_from_url, *(zerochan_add, u))),
         "Twitter": (lambda u: u.replace("https://", "").startswith(("xcancel.com", "twitter.com", "x.com", "nitter.net", "cdn.xcancel.com", "pbs.twimg.com")), lambda u: (url := u.replace("x.com", "nitter.net").replace("xcancel.com", "nitter.net").replace("twitter.com", "nitter.net"), app.session.send_and_read_async((m := Soup.Message.new("GET", url), tuple(m.get_request_headers().append(k, v) for k, v in (("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"), ("Accept-Language", "en-US,en;q=0.5"), ("Sec-Fetch-Dest", "document"))), m)[-1], GLib.PRIORITY_DEFAULT, None, add_from_url, *(twitter_add, url)))),
-        "4chan": (lambda u: u.replace("https://", "").startswith(("boards.4chan.org", "warosu.org")), lambda u: (url := u.replace("boards.4chan", "warosu") if u.split("/")[3].startswith(("3", "biz", "cgl", "ck", "diy", "fa", "ic", "jp", "lit", "sci", "vr", "vt")) else f'https://desuarchive.org/_/api/chan/post/?board={u.split("/")[3]}&num={u.split("/")[-1].split("#p")[-1]}' if u.split("/")[3].startswith(("a", "aco", "an", "c", "cgl", "co", "d", "fit", "g", "his", "int", "k", "m", "mlp", "mu", "q", "qa", "r9k", "tg", "trash", "vr", "wsg")) else u, app.session.send_and_read_async(Soup.Message.new("GET", url), GLib.PRIORITY_DEFAULT, None, add_from_url, *(chan_add, url)))),
         "Artstation": (lambda u: "artstation.com/artwork/" in u, lambda u: app.session.send_and_read_async(Soup.Message.new("GET", f"{u.replace('artwork', 'projects')}.json"), GLib.PRIORITY_DEFAULT, None, add_from_url, *(artstation_add, u))),
         "Reddit": (lambda u: u.startswith("https://www.reddit.com/r/") and "/comments/" in u, lambda u: app.session.send_and_read_async(Soup.Message.new("GET", u), GLib.PRIORITY_DEFAULT, None, add_from_url, *(reddit_add, u))),
         "Pinterest": (lambda u: "pinterest.com/pin/" in u, lambda u: app.session.send_and_read_async(Soup.Message.new("GET", u), GLib.PRIORITY_DEFAULT, None, add_from_url, *(pinterest_add, u))),
@@ -379,8 +529,7 @@ def add(v):
             u = False
             for k in app.sites:
                 if "URL" in app.sites[k] and url.startswith(app.sites[k]["URL"].get_text()):
-                    e = engines[app.sites[k]["Engine"].get_selected_item().get_string()]
-                    e["add"](k, e, url)
+                    app.thread.submit(general_add, k, url)
                     u = True
                     continue
             for k in extra:
@@ -420,11 +569,7 @@ def tag_widget_added(r, tag):
         e.connect("pressed", tag_clicked)
         tag.get_first_child().add_controller(e)
 engines_model = Gtk.StringList.new(tuple(engines))
-def new_site(*_):
-    na = unique_name("New Site", app.data["Sites"])
-    app.data["Sites"][na] = {"URL": "", "Append to Search": "", "Engine": "Danbooru", "Favorites": []}
-    add_site(na)
-Action("new-site", new_site)
+Action("new-site", lambda *_: add_site(unique_name("New Site", app.data["Sites"])))
 def do_delete_site(*_):
     sites.remove(sites.find(delete_site.g.get_title()))
     sites_page.remove(delete_site.g)
@@ -436,6 +581,7 @@ def rename_site(*_):
     n = sites.find(site_rename.g.get_title())
     sites.splice(n, 1, (name, ))
     app.data["Sites"][name] = app.data["Sites"].pop(site_rename.g.get_title())
+    app.sites[name] = app.sites.pop(site_rename.g.get_title())
     for i in app.persist:
         if hasattr(i, "page") and i.page == "Sites" and i.group == site_rename.g.get_title(): setattr(i, "group", name)
     site_rename.g.set_title(name)
@@ -445,7 +591,8 @@ delete_site.connect("response", lambda d, r: (d.close(), do_delete_site() if r =
 for i in ("cancel", "confirm"): delete_site.add_response(i, i.title())
 delete_site.set_response_appearance("confirm", Adw.ResponseAppearance.DESTRUCTIVE)
 def add_site(name):
-    app.sites[name] = {}
+    app.data["Sites"].setdefault(name, {"URL": "", "Append to Search": "", "Engine": "Danbooru", "Favorites": []})
+    app.sites.setdefault(name, {})
     if name == "Cardboard":
         group = Adw.PreferencesGroup(title=name)
         app.persist.append(Adw.EntryRow(title="Append to Search", text=app.data["Sites"][name]["Append to Search"]))
@@ -495,7 +642,7 @@ for p in app.data:
                 for n, v in app.data[p][g].items():
                     app.persist.append(Adw.ComboRow(model=sites, selected=sites.find(v)) if n == "New Tab Site" else Adw.SwitchRow(active=v) if type(v) is bool else Adw.EntryRow(text=v))
                     app.persist[-1].set_title(n)
-                    app.persist[-1].page, app.persist[-1].group, app.persist[-1].property = p, g, "active" if isinstance(app.persist[-1], Adw.SwitchRow) else "text" if isinstance(app.persist[-1], Adw.EntryRow) else "selected-item" 
+                    app.persist[-1].page, app.persist[-1].group, app.persist[-1].property = p, g, "active" if isinstance(app.persist[-1], Adw.SwitchRow) else "text" if isinstance(app.persist[-1], Adw.EntryRow) else "selected-item"
                     group.add(app.persist[-1])
                     setattr(preferences, f"{g} {n}", app.persist[-1])
             page.add(group)
@@ -652,7 +799,7 @@ def post_related(b):
     p_id = get_property(p.o, "parent_id", p.s)
     has_c = get_property(p.o, "has_children", p.s)
     if p_id: Tab(q=f"parent:{p_id}", s=p.s)
-    if has_c: Tab(q=f"parent:{p.o['id']}", s=p.s)
+    if has_c: Tab(q=f"parent:{get_property(p.o, 'id', p.s)}", s=p.s)
 def post_favorite(b):
     p = b.get_ancestor(Gtk.Overlay)
     if tuple(i for i in app.data["Sites"][p.s]["Favorites"] if i["id"] == p.o["id"]):
@@ -666,18 +813,36 @@ def finish_func(picture, paintable):
     if not isinstance(picture.get_parent(), Gtk.Overlay):
         paintable.colors = palette(paintable, distance=160, black_white=300)
         GLib.idle_add(apply_colors)
+    if hasattr(picture.get_parent(), "t") and picture.get_parent().t: picture.set_can_shrink(False)
 app.finish_func = finish_func
 Action("more", lambda *_: view.get_selected_page().get_child().get_child().more.emit("clicked") if hasattr(view.get_selected_page().get_child().get_child(), "more") else None, "<primary>e")
-def Post(o, s, p=False):
+def thumbnail_clicked(event, n_press, x, y):
+    p = event.get_widget()
+    if p.url: return(launch(p.url))
+    p.loaded = not p.loaded if hasattr(p, "loaded") else True
+    for i in p:
+        if isinstance(i, Gtk.Image): i.set_visible(not p.loaded)
+    if not event.get_widget().o["preview_url"].endswith(".gif") and isinstance(p.get_child().controls, Gtk.MediaControls): p.get_child().controls.set_visible(p.loaded)
+    app.thread.submit(load_media, p, p.o["file_url" if p.loaded else "preview_url"])
+def Post(o, s, p=False, t=False):
+    e = s if s == "Cardboard" else app.sites[s]["Engine"].get_selected_item().get_string()
+    e_url, ib, comment = None, "fetch_thread" in engines[e] and not "file_url" in o, None
+    if ib:
+        url = app.sites[s]["URL"].get_text()
+        comment = get_property(o, "comment", s)
+        new = {}
+        for i in engines[e]["overrides"]:
+            if i.startswith("og_"): new.setdefault(i.lstrip("og_"), engines[e]["overrides"][i](o, url) if "url_dependant" in engines[e] and i in engines[e]["url_dependant"] else engines[e]["overrides"][i](o))
+        o = new
     _hash = get_property(o, "hash", s)
     file_url, preview_url = tuple(get_property(o, i, s) or "" for i in ("file_url", "preview_url"))
     uri = file_url if (not p and file_url or not preview_url) else preview_url
     file, preview_file = tuple(app.data_folder.get_child(i) for i in (f"{_hash}.{file_url.rsplit('.')[-1]}", f"preview-{_hash}.{preview_url.rsplit('.')[-1]}"))
-    fe, pe = tuple(os.path.exists(i.peek_path()) for i in (file, preview_file))
+    fe, pe = tuple(os.path.exists(i.peek_path()) if i else False for i in (file, preview_file))
     uri = preview_file if pe and (p or not fe) else file if fe else uri
     if uri == "":
         uri = None
-    post = Media(uri, overlay=True, controls=not p, play=not p, scrollable=not p)
+    post = Media(uri, overlay=True, controls=True if t else not p, play=True if t or p and ".gif" in (preview_url or file_url) else not p, scrollable=not p)
     buttons = tuple(Button(name=n, callback=c) for n, c in (("related", post_related), ("favorite", post_favorite), ("more", show_edit)))
     for i in buttons: setattr(post, i.get_name(), i)
     post.more.set_properties(icon_name="view-more", tooltip_text="More")
@@ -688,23 +853,115 @@ def Post(o, s, p=False):
         post.height = max(get_property(o, "height", s), 1) / max(get_property(o, "width", s), 1)
         duration = get_property(o, "duration", s)
         if duration: GLib.idle_add(post.add_overlay, Gtk.Label(valign=Gtk.Align.END, halign=Gtk.Align.START, label=duration[3:] if duration.startswith("00:") else duration))
+        elif Gio.content_type_guess(file_url)[0].startswith("video"): post.add_overlay(Gtk.Image(valign=Gtk.Align.CENTER, halign=Gtk.Align.CENTER, pixel_size=50, icon_name="media-playback-start-symbolic"))
     else:
         post.get_child().get_child().set_properties(overflow=False, valign=Gtk.Align.CENTER)
         revealer.get_child().add_css_class("linked")
     for i in buttons: GLib.idle_add(revealer.get_child().append, i)
     post.file, post.preview_file = file, preview_file
-    post.p, post.o, post.s = p, o, s
+    post.p, post.o, post.s, post.t = p, o, s, t
     post.event.connect("enter", show_revealer)
     if uri and not (fe and pe) and getattr(preferences, "Favorites Download Favorites").get_active() and o in app.data["Sites"][s]["Favorites"]: post_download(post)
+    if t:
+        for n, i in ((1, thumbnail_clicked), (2, lambda e, *_: Tab(q=e.get_widget().o, s=e.get_widget().s))):
+            click = Gtk.GestureClick(button=n)
+            click.connect("released", i)
+            post.add_controller(click)
+        post.url = e_url
+        if e_url: post.set_tooltip_text(e_url)
+    elif s != "Cardboard" and p and ib:
+        if comment:
+            box = Gtk.Box(overflow=Gtk.Overflow.HIDDEN, orientation=Gtk.Orientation.VERTICAL)
+            intro = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER, max_content_height=200, propagate_natural_height=True, child=Gtk.Viewport(valign=Gtk.Align.CENTER, child=Gtk.Box(halign=Gtk.Align.CENTER, orientation=Gtk.Orientation.VERTICAL)))
+            ParseComment(comment, intro.get_child().get_child(), {"hexpand": True, "halign": Gtk.Align.CENTER, "justify": Gtk.Justification.CENTER,}, {"hexpand": True, "halign": Gtk.Align.CENTER})
+            for i in (post, intro): box.append(i)
+            post = box
+        post.add_css_class("thread-preview")
     return post
-
+def open_link(label, uri):
+    if uri.startswith(">>"):
+        thread = label.get_ancestor(Gtk.Box).get_ancestor(Gtk.Box).get_parent()
+        for i in thread:
+            if i.get_name() == uri.strip(">>") and not "highlight" in i.get_css_classes():
+                thread.get_parent().scroll_to(i)
+                i.add_css_class("highlight")
+            else: i.remove_css_class("highlight")
+    else: launch(uri)
+    return True
+class ParseComment(HTMLParser):
+    def __init__(self, comment, body, args={}, wargs={}):
+        self.body, self.wrap, self.css, self.args, self.wargs = body, None, [], args, wargs
+        super().__init__()
+        self.body.append(Adw.WrapBox(**self.wargs))
+        self.wrap = self.body.get_last_child()
+        if comment: self.feed(comment)
+    def handle_starttag(self, tag, attrs):
+        if tag == "br":
+            self.body.append(Adw.WrapBox(**self.wargs))
+            self.wrap = self.body.get_last_child()
+        if tag in ("b", "strong"): self.css.append("bold")
+        if tag == "em": self.css.append("italic")
+        if tag == "code": self.css.append("code")
+        if tag == "a": self.css.append("url")
+        if [i for i in attrs if i[0] == "class"]:
+            self.css += [i[1] for i in attrs if i[0] == "class"][0].split(" ")
+    def handle_data(self, data):
+        args = { "selectable": True, "wrap": True, "wrap_mode": Pango.WrapMode.WORD_CHAR, "label": data.strip(), "css_classes": self.css }
+        if "url" in self.css:
+            args["label"] = GLib.markup_escape_text(args["label"])
+            args["label"] = f'<a href="{args["label"]}" class="url">{args["label"]}</a>'
+            args["use_markup"] = True
+        label = Gtk.Label(**args, **self.args)
+        if "url" in self.css: label.connect("activate-link", open_link)
+        self.wrap.append(label)
+    def handle_endtag(self, tag):
+        self.css = []
+def Reply(o, s, full):
+    name, time, number, country, country_name, _id, tripcode, comment = tuple(get_property(o, i, s) for i in ("name", "og_created_at", "og_id", "country", "country_name", "poster_id", "trip", "comment"))
+    header, reply = Adw.WrapBox(css_name="header", child_spacing=8, line_spacing=2, halign=Gtk.Align.START), Gtk.Box(name=str(number), css_name="reply", halign=Gtk.Align.START, orientation=Gtk.Orientation.VERTICAL)
+    for i in (name, GLib.DateTime.new_from_unix_utc(time).to_local().format("%x (%a) %T"), f"No.{number}"): header.append(Gtk.Label(selectable=True, halign=Gtk.Align.START, ellipsize=Pango.EllipsizeMode.END, label=i))
+    if country: header.insert_child_after(Gtk.Label(selectable=True, halign=Gtk.Align.START, ellipsize=Pango.EllipsizeMode.END, label=country, tooltip_text=country_name), header.get_first_child())
+    if _id: header.get_first_child().set_tooltip_text(_id)
+    reply.append(header)
+    medias = []
+    if "media" in o and o["media"] or "filename" in o or "embed" in o: medias.append(o)
+    if "extra_files" in o:
+        for i in o["extra_files"]:
+            no = dict(o)
+            no.update(i)
+            medias.append(no)
+    if len(medias) > 1:
+        bottom = Adw.WrapBox(child_spacing=10, line_spacing=10)
+        reply.append(bottom)
+    else:
+        bottom = reply
+    for i in medias:
+        if "ext" in i and Gio.content_type_guess(i["ext"])[0].startswith("audio"):
+            url = app.sites[s]["URL"].get_text()
+            p = Media(f"{url}src/{i['tim']}{i['ext']}")
+        else:
+            p = Post(i, s, True, True)
+            p.set_properties(tooltip_text=(i["filename"] + i["ext"]) if "filename" in i else i["media"]["media_orig"] if "media" in i else p.o["preview_url"], halign=Gtk.Align.START, valign=Gtk.Align.START)
+        bottom.append(p)
+    if comment: ParseComment(comment, reply, {"halign": Gtk.Align.START})
+    for i in full:
+        _comment = get_property(i, "comment", s)
+        if not _comment: continue
+        if f"&gt;&gt;{number}" in _comment:
+            l = f"&gt;&gt;{get_property(i, 'og_id', s)}"
+            header.append(Gtk.Label(selectable=True, css_classes=("url",), use_markup=True, label=f'<a href="{l}" class="url">{l}</a>'))
+            header.get_last_child().connect("activate-link", open_link)
+    return reply
 def catalog_activate(m, c, b):
+    if not hasattr(c, "o"):
+        c = c.get_first_child()
+    o = f"parent:{c.o['id']}" if site_row.get_selected_item().get_string() != "Cardboard" and c.s != "Cardboard" and "fetch_thread" in engines[app.sites[c.s]["Engine"].get_selected_item().get_string()] else c.o
     match b:
-        case 1: tab_load(q=[c.o, 1, c.s, []])
-        case 2: Tab(q=c.o, s=c.s)
+        case 1: tab_load(q=[o, 1, c.s, []])
+        case 2: Tab(q=o, s=c.s)
         case 3: c.favorite.emit("clicked")
 def catalog_load_more(sw, p):
-    content = sw.get_parent()
+    content = sw if hasattr(sw, "count") else sw.get_parent()
     if p == 3 and not content.count[0] >= content.count[1]:
         t = view.get_page(content.get_ancestor(Adw.Bin))
         if not t.get_loading(): app.thread.submit(tab_load, t=t, page=True)
@@ -712,14 +969,14 @@ def tab_changed(*_):
     GLib.idle_add(apply_colors)
     v = view.get_selected_page()
     if not hasattr(v, "history"): return
-    multi.get_child("previous").set_sensitive(len(v.history) - 1 >= v.index and v.index != 0 ) 
-    multi.get_child("next").set_sensitive(len(v.history) > v.index + 1) 
+    multi.get_child("previous").set_sensitive(len(v.history) - 1 >= v.index and v.index != 0 )
+    multi.get_child("next").set_sensitive(len(v.history) > v.index + 1)
     q = v.history[v.index]
     site_row.set_selected(sites.find(q[2]))
     page_row.set_value(q[1])
     if not isinstance(q[0], list):
         app.modifying = True
-        search.set_text(f"id:{q[0]['id']}" if isinstance(q[0], dict) else q[0])
+        search.set_text(f"id:{get_property(q[0], 'id', q[2])}" if isinstance(q[0], dict) else q[0])
         app.modifying = False
         search.set_position(-1)
     content = v.get_child().get_child()
@@ -782,10 +1039,11 @@ def tab_load(t=None, page=False, q=[]):
         t.history.append(q)
     q = t.history[t.index]
     if not page and hasattr(content, "q") and content.q == q: return
+    GLib.idle_add(apply_colors)
     if page and not (q[3] and q[2] != "Cardboard"):
         q[1] += 1
     if t == view.get_selected_page():
-        GLib.idle_add(multi.get_child("previous").set_sensitive, len(t.history) - 1 >= t.index and t.index != 0) 
+        GLib.idle_add(multi.get_child("previous").set_sensitive, len(t.history) - 1 >= t.index and t.index != 0)
         GLib.idle_add(multi.get_child("next").set_sensitive, len(t.history) > t.index + 1)
     GLib.idle_add(app.window.remove_css_class, "colored")
     if q[3]:
@@ -799,7 +1057,7 @@ def tab_load(t=None, page=False, q=[]):
                 count, q[3] = len(q[3]), q[3][limit * (q[1] - 1):] if q[1] > 1 else q[3]
             else:
                 try:
-                    count, q[3] = fetch_online_catalog(q[2], q[0], q[1], not page)
+                    count, q[3] = fetch_online(q[2], q[0], q[1], not page)
                 except Exception as e:
                     Toast(e)
                     GLib.timeout_add(200, t.set_loading, False)
@@ -808,39 +1066,48 @@ def tab_load(t=None, page=False, q=[]):
             if not page: GLib.idle_add(t.set_title, f"{q[0]} ({count}) ({q[2]})")
         elif isinstance(q[0], dict):
             catalog = (q[0],)
-    q[3] = tuple(i for i in q[3] if not i in catalog)
-    if not catalog and not page:
-        content = Adw.StatusPage(description=f"No posts for page {q[1]}\nTry a different search", icon_name="edit-find-symbolic", title="No Results")
-    elif len(catalog) == 1 and not page:
-        content = Post(catalog[0][0] if isinstance(catalog[0], tuple) else catalog[0], catalog[0][1] if isinstance(catalog[0], tuple) else q[2])
-        m = f"post {content.o['id']} ({content.s})"
-        print(f'{GLib.DateTime.new_now_local().format("%R")} in {m}')
-        GLib.idle_add(t.set_title, m)
+    if "parent:" in q[0] and "fetch_thread" in engines[app.sites[q[2]]["Engine"].get_selected_item().get_string()]:
+        box = Gtk.Box(css_name="thread", orientation=Gtk.Orientation.VERTICAL)
+        for i in q[3]: GLib.idle_add(box.append, Reply(i, q[2], q[3]))
+        content = Gtk.ScrolledWindow(child=Gtk.Viewport(scroll_to_focus=False, child=box))
     else:
-        if page:
-            content.count[0] = min(limit * q[1], content.count[1])
+        q[3] = tuple(i for i in q[3] if not i in catalog)
+        if not catalog and not page:
+            content = Adw.StatusPage(description=f"No posts for page {q[1]}\nTry a different search", icon_name="edit-find-symbolic", title="No Results")
+        elif len(catalog) == 1 and not page:
+            content = Post(catalog[0][0] if isinstance(catalog[0], tuple) else catalog[0], catalog[0][1] if isinstance(catalog[0], tuple) else q[2])
+            m = f"post {get_property(content.o, 'id', content.s)} ({content.s})"
+            print(f'{GLib.DateTime.new_now_local().format("%R")} in {m}')
+            GLib.idle_add(t.set_title, m)
         else:
-            content = MasonryBox(activate=catalog_activate)
-            t.viewport = content.get_child()
-            content.count = [min(limit * q[1], count), count]
-            content.get_child().connect("edge-reached", catalog_load_more)
-        for i in catalog:
-            if any(it in get_property(i, "tags", i[1]) for it in getattr(preferences, "Blacklist").tags): continue
-            GLib.idle_add(masonrybox_add, *(content, Post(i[0] if q[2] == "Cardboard" else i, i[1] if q[2] == "Cardboard" else q[2], True)))
-        total_pages = -(-content.count[1] // limit)
-        m = f"Page {q[1]} of {total_pages}"
-        Toast(m, message=f'{GLib.DateTime.new_now_local().format("%R")} in {q[2]} "{q[0]}" {m}', timeout=1)
+            if page:
+                content.count[0] = min(limit * q[1], content.count[1])
+            else:
+                content = MasonryBox(activate=catalog_activate)
+                t.viewport = content.get_child()
+                content.count = [min(limit * q[1], count), count]
+                content.get_child().connect("edge-reached", catalog_load_more)
+            for i in catalog:
+                if any(it in get_property(i, "tags", i[1]) for it in getattr(preferences, "Blacklist").tags): continue
+                GLib.idle_add(masonrybox_add, *(content, Post(i[0] if q[2] == "Cardboard" else i, i[1] if q[2] == "Cardboard" else q[2], True)))
+            total_pages = -(-content.count[1] // limit)
+            m = f"Page {q[1]} of {total_pages}"
+            Toast(m, message=f'{GLib.DateTime.new_now_local().format("%R")} in {q[2]} "{q[0]}" {m}', timeout=1)
     content.q = q
     GLib.idle_add(t.get_child().set_child, content)
     GLib.timeout_add(200, t.set_loading, False)
     GLib.timeout_add(200, suggestions_popover.popdown)
     if t.get_child().get_mapped():
-        GLib.idle_add(site_row.set_selected, sites.find(q[2])) 
+        GLib.idle_add(site_row.set_selected, sites.find(q[2]))
         GLib.idle_add(page_row.set_value, q[1])
-def Tab(*_, q=None, p=1, s=""):
-    tab = view.add_page(Adw.Bin())
+def Tab(*_, q=None, p=1, s="", a=False):
+    t = view.get_selected_page()
+    if a or not t:
+        tab = view.append(Adw.Bin())
+    else:
+        tab = view.insert(Adw.Bin(), (view.get_n_pinned_pages() if t.get_pinned() else 1) + view.get_page_position(t))
     q, s = getattr(preferences, "Tabs New Tab Query").get_text() if q == None else q, s if s else getattr(preferences, "Tabs New Tab Site").get_selected_item().get_string()
-    tab.set_title(f"post {q['id']} ({s})" if isinstance(q, dict) else f"{q} ({s})")
+    tab.set_title(f"post {get_property(q, 'id', s)} ({s})" if isinstance(q, dict) else f"{q} ({s})")
     tab.history, tab.index = [[q, p, s, ()]], 0
     return tab
 Action("new-tab", Tab, "<primary>t")
@@ -880,7 +1147,7 @@ editable = ((TagRow(name="tags || tag_string", title="Tags"), "tags"),
             (Adw.EntryRow(title="File URL", name="file_url"), "text"),
             (Adw.EntryRow(title="Preview URL", name="preview_url || preview_file_url"), "text"),
             (rating_group, "active"),
-            (Adw.SpinRow(title="Parent ID", name="parent_id", adjustment=Gtk.Adjustment.new(0, 0, 1e8, 1, 10, 10)), "value"),
+            (Adw.SpinRow(title="Parent ID", name="parent_id", adjustment=Gtk.Adjustment.new(0, 0, 1e20, 1, 10, 10)), "value"),
             (Adw.SwitchRow(title="Has Children", name="has_children"), "active"),)
 editable[0][0].connect("tag-widget-added", tag_widget_added)
 for i in ratings: rating_group.add(Adw.Toggle(label=i[:1], tooltip=i))
@@ -925,7 +1192,7 @@ def ai_ai(b):
         picture = picture.get_child()
     form_data.append_form_file("file", "image.png", "image/png", picture.get_paintable().get_current_image().save_to_png_bytes())
     form_data.append_form_string("format", "json")
-    mes = Soup.Message.new_from_multipart("https://autotagger.donmai.us/evaluate", form_data)   
+    mes = Soup.Message.new_from_multipart("https://autotagger.donmai.us/evaluate", form_data)
     b = app.session.send_and_read(mes)
     if mes.get_status() == 200:
         editable[0][0].tags = [i for i in json(b.get_data())[0]["tags"]]
@@ -963,14 +1230,16 @@ def show_edit(b, *_):
     app.modifying = False
 
 def apply_colors(*_):
-    v = None
-    if isinstance(view.get_selected_page().get_child(), Adw.Spinner) or not view.get_selected_page().get_child().get_child(): return False
-    if not view.get_selected_page().get_child().get_child().get_child(): return False
-    v = view.get_selected_page().get_child().get_child().get_child().get_child().get_child()
-    v = v.get_paintable() if hasattr(v, "get_paintable") else None
+    t = view.get_selected_page()
+    v = t.get_child()
+    while hasattr(v, "get_child"):
+        v = v.get_child()
+    v = v.get_paintable() if hasattr(v, "get_paintable") else v
+    s = t.history[t.index][2]
     GLib.idle_add(set_colors, v, True)
+    GLib.idle_add(app.window.set_css_classes, [f"{s if s == 'Cardboard' else app.sites[s]['Engine'].get_selected_item().get_string()}", f"site-{s.strip('/')}"] + [i for i in app.window.get_css_classes() if not i.startswith("site") and not i in engines])
     return False
-for i in app.data["Tabs"]: view.set_page_pinned(Tab(q=i[0], p=i[1], s=i[2]), i[3])
+for i in app.data["Tabs"]: view.set_page_pinned(Tab(q=i[0], p=i[1], s=i[2], a=True), i[3])
 if not view.get_selected_page(): Tab()
 getattr(preferences, "View Post Colors Theming").bind_property("active", Action("colors", apply_colors, stateful=False), "state", GObject.BindingFlags.DEFAULT | GObject.BindingFlags.SYNC_CREATE, lambda b, v: GLib.Variant("b", v))
 GLib.idle_add(tab_changed)
