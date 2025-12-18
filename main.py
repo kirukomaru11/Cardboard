@@ -919,7 +919,10 @@ class ParseComment(HTMLParser):
 def Reply(o, s, full):
     name, time, number, country, country_name, _id, tripcode, comment = tuple(get_property(o, i, s) for i in ("name", "og_created_at", "og_id", "country", "country_name", "poster_id", "trip", "comment"))
     header, reply = Adw.WrapBox(css_name="header", child_spacing=8, line_spacing=2, halign=Gtk.Align.START), Gtk.Box(name=str(number), css_name="reply", halign=Gtk.Align.START, orientation=Gtk.Orientation.VERTICAL)
-    for i in (name, GLib.DateTime.new_from_unix_utc(time).to_local().format("%x (%a) %T"), f"No.{number}"): header.append(Gtk.Label(selectable=True, halign=Gtk.Align.START, ellipsize=Pango.EllipsizeMode.END, label=i))
+    time = GLib.DateTime.new_from_unix_utc(time)
+    if app.sites[s]["Engine"].get_selected_item().get_string() != "vichan":
+        time = time.to_local()
+    for i in (name, time.format("%x (%a) %T"), f"No.{number}"): header.append(Gtk.Label(selectable=True, halign=Gtk.Align.START, ellipsize=Pango.EllipsizeMode.END, label=i))
     if country: header.insert_child_after(Gtk.Label(selectable=True, halign=Gtk.Align.START, ellipsize=Pango.EllipsizeMode.END, label=country, tooltip_text=country_name), header.get_first_child())
     if _id: header.get_first_child().set_tooltip_text(_id)
     reply.append(header)
