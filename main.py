@@ -794,7 +794,7 @@ def post_favorite(b):
         app.data["Sites"][p.s]["Favorites"] = [i for i in app.data["Sites"][p.s]["Favorites"] if i["ID"] != p.o["ID"]]
     else:
         app.data["Sites"][p.s]["Favorites"].append(p.o)
-        if app.sites[s]["Download Favorites"].get_active(): post_download(p)
+        if app.sites[p.s]["Download Favorites"].get_active(): post_download(p)
     show_revealer(p.event)
 def finish_func(picture, paintable):
     if not isinstance(picture.get_parent(), Gtk.Overlay):
