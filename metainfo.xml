@@ -180,7 +180,8 @@
         <mediatype>image/svg+xml-compressed</mediatype>
         <mediatype>image/avif</mediatype>
         <mediatype>image/heic</mediatype>
-        <mediatype>image/jxl</mediatype>    </provides>
+        <mediatype>image/jxl</mediatype>
+    </provides>
     <content_rating type="oars-1.1" />
     <metadata_license>MIT</metadata_license>
     <project_license>MIT</project_license>
