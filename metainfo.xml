@@ -5,21 +5,9 @@
         <name>きるこ丸11号</name>
     </developer>
     <name>Cardboard</name>
-    <summary>Browse art on boorus</summary>
+    <summary>Browse imageboards</summary>
     <description>
-        <p>Cardboard can be used to browse different boorus, download posts, and also keep a local favorites collection across all of them, while also supporting adding individual links for some services and files</p>
-        <p>Some features:</p>
-        <ul>
-          <li>Adaptive UI and post color theming</li>
-          <li>AI autotag (uses Danbooru)</li>
-          <li>Search autocomplete (uses Danbooru)</li>
-          <li>Editing posts locally and viewing information about them</li>
-          <li>Download posts</li>
-          <li>Bookmark and blacklist tags</li>
-          <li>Drop a file to add it to favorites</li>
-          <li>Tabs and middle click to open tag/post in a new tab</li>
-          <li>Restore tabs on start</li>
-        </ul>
+        <p>Cardboard</p>
     </description>
     <branding>
         <color type="primary" scheme_preference="light">#b5835a</color>
@@ -41,13 +29,158 @@
       <keyword>GTK</keyword>
       <keyword>GNOME</keyword>
       <keyword>Booru</keyword>
+      <keyword>Imageboard</keyword>
       <keyword>Browser</keyword>
       <keyword>Favorites</keyword>
       <keyword>Tags</keyword>
     </keywords>
     <provides>
         <binary>cardboard</binary>
-    </provides>
+        <mediatype>application/ogg</mediatype>
+        <mediatype>application/x-ogg</mediatype>
+        <mediatype>application/mxf</mediatype>
+        <mediatype>application/sdp</mediatype>
+        <mediatype>application/smil</mediatype>
+        <mediatype>application/x-smil</mediatype>
+        <mediatype>application/streamingmedia</mediatype>
+        <mediatype>application/x-streamingmedia</mediatype>
+        <mediatype>application/vnd.rn-realmedia</mediatype>
+        <mediatype>application/vnd.rn-realmedia-vbr</mediatype>
+        <mediatype>audio/aac</mediatype>
+        <mediatype>audio/x-aac</mediatype>
+        <mediatype>audio/vnd.dolby.heaac.1</mediatype>
+        <mediatype>audio/vnd.dolby.heaac.2</mediatype>
+        <mediatype>audio/aiff</mediatype>
+        <mediatype>audio/x-aiff</mediatype>
+        <mediatype>audio/m4a</mediatype>
+        <mediatype>audio/x-m4a</mediatype>
+        <mediatype>application/x-extension-m4a</mediatype>
+        <mediatype>audio/mp1</mediatype>
+        <mediatype>audio/x-mp1</mediatype>
+        <mediatype>audio/mp2</mediatype>
+        <mediatype>audio/x-mp2</mediatype>
+        <mediatype>audio/mp3</mediatype>
+        <mediatype>audio/x-mp3</mediatype>
+        <mediatype>audio/mpeg</mediatype>
+        <mediatype>audio/mpeg2</mediatype>
+        <mediatype>audio/mpeg3</mediatype>
+        <mediatype>audio/mpegurl</mediatype>
+        <mediatype>audio/x-mpegurl</mediatype>
+        <mediatype>audio/mpg</mediatype>
+        <mediatype>audio/x-mpg</mediatype>
+        <mediatype>audio/rn-mpeg</mediatype>
+        <mediatype>audio/musepack</mediatype>
+        <mediatype>audio/x-musepack</mediatype>
+        <mediatype>audio/ogg</mediatype>
+        <mediatype>audio/scpls</mediatype>
+        <mediatype>audio/x-scpls</mediatype>
+        <mediatype>audio/vnd.rn-realaudio</mediatype>
+        <mediatype>audio/wav</mediatype>
+        <mediatype>audio/x-pn-wav</mediatype>
+        <mediatype>audio/x-pn-windows-pcm</mediatype>
+        <mediatype>audio/x-realaudio</mediatype>
+        <mediatype>audio/x-pn-realaudio</mediatype>
+        <mediatype>audio/x-ms-wma</mediatype>
+        <mediatype>audio/x-pls</mediatype>
+        <mediatype>audio/x-wav</mediatype>
+        <mediatype>video/mpeg</mediatype>
+        <mediatype>video/x-mpeg2</mediatype>
+        <mediatype>video/x-mpeg3</mediatype>
+        <mediatype>video/mp4v-es</mediatype>
+        <mediatype>video/x-m4v</mediatype>
+        <mediatype>video/mp4</mediatype>
+        <mediatype>application/x-extension-mp4</mediatype>
+        <mediatype>video/divx</mediatype>
+        <mediatype>video/vnd.divx</mediatype>
+        <mediatype>video/msvideo</mediatype>
+        <mediatype>video/x-msvideo</mediatype>
+        <mediatype>video/ogg</mediatype>
+        <mediatype>video/quicktime</mediatype>
+        <mediatype>video/vnd.rn-realvideo</mediatype>
+        <mediatype>video/x-ms-afs</mediatype>
+        <mediatype>video/x-ms-asf</mediatype>
+        <mediatype>audio/x-ms-asf</mediatype>
+        <mediatype>application/vnd.ms-asf</mediatype>
+        <mediatype>video/x-ms-wmv</mediatype>
+        <mediatype>video/x-ms-wmx</mediatype>
+        <mediatype>video/x-ms-wvxvideo</mediatype>
+        <mediatype>video/x-avi</mediatype>
+        <mediatype>video/avi</mediatype>
+        <mediatype>video/x-flic</mediatype>
+        <mediatype>video/fli</mediatype>
+        <mediatype>video/x-flc</mediatype>
+        <mediatype>video/flv</mediatype>
+        <mediatype>video/x-flv</mediatype>
+        <mediatype>video/x-theora</mediatype>
+        <mediatype>video/x-theora+ogg</mediatype>
+        <mediatype>video/x-matroska</mediatype>
+        <mediatype>video/mkv</mediatype>
+        <mediatype>audio/x-matroska</mediatype>
+        <mediatype>application/x-matroska</mediatype>
+        <mediatype>video/webm</mediatype>
+        <mediatype>audio/webm</mediatype>
+        <mediatype>audio/vorbis</mediatype>
+        <mediatype>audio/x-vorbis</mediatype>
+        <mediatype>audio/x-vorbis+ogg</mediatype>
+        <mediatype>video/x-ogm</mediatype>
+        <mediatype>video/x-ogm+ogg</mediatype>
+        <mediatype>application/x-ogm</mediatype>
+        <mediatype>application/x-ogm-audio</mediatype>
+        <mediatype>application/x-ogm-video</mediatype>
+        <mediatype>application/x-shorten</mediatype>
+        <mediatype>audio/x-shorten</mediatype>
+        <mediatype>audio/x-ape</mediatype>
+        <mediatype>audio/x-wavpack</mediatype>
+        <mediatype>audio/x-tta</mediatype>
+        <mediatype>audio/AMR</mediatype>
+        <mediatype>audio/ac3</mediatype>
+        <mediatype>audio/eac3</mediatype>
+        <mediatype>audio/amr-wb</mediatype>
+        <mediatype>video/mp2t</mediatype>
+        <mediatype>audio/flac</mediatype>
+        <mediatype>audio/mp4</mediatype>
+        <mediatype>application/x-mpegurl</mediatype>
+        <mediatype>video/vnd.mpegurl</mediatype>
+        <mediatype>application/vnd.apple.mpegurl</mediatype>
+        <mediatype>audio/x-pn-au</mediatype>
+        <mediatype>video/3gp</mediatype>
+        <mediatype>video/3gpp</mediatype>
+        <mediatype>video/3gpp2</mediatype>
+        <mediatype>audio/3gpp</mediatype>
+        <mediatype>audio/3gpp2</mediatype>
+        <mediatype>video/dv</mediatype>
+        <mediatype>audio/dv</mediatype>
+        <mediatype>audio/opus</mediatype>
+        <mediatype>audio/vnd.dts</mediatype>
+        <mediatype>audio/vnd.dts.hd</mediatype>
+        <mediatype>audio/x-adpcm</mediatype>
+        <mediatype>application/x-cue</mediatype>
+        <mediatype>audio/m3u</mediatype>
+        <mediatype>audio/vnd.wave</mediatype>
+        <mediatype>video/vnd.avi</mediatype>
+        <mediatype>image/jpeg</mediatype>
+        <mediatype>image/png</mediatype>
+        <mediatype>image/gif</mediatype>
+        <mediatype>image/webp</mediatype>
+        <mediatype>image/tiff</mediatype>
+        <mediatype>image/x-tga</mediatype>
+        <mediatype>image/vnd-ms.dds</mediatype>
+        <mediatype>image/x-dds</mediatype>
+        <mediatype>image/bmp</mediatype>
+        <mediatype>image/vnd.microsoft.icon</mediatype>
+        <mediatype>image/vnd.radiance</mediatype>
+        <mediatype>image/x-exr</mediatype>
+        <mediatype>image/x-portable-bitmap</mediatype>
+        <mediatype>image/x-portable-graymap</mediatype>
+        <mediatype>image/x-portable-pixmap</mediatype>
+        <mediatype>image/x-portable-anymap</mediatype>
+        <mediatype>image/x-qoi</mediatype>
+        <mediatype>image/qoi</mediatype>
+        <mediatype>image/svg+xml</mediatype>
+        <mediatype>image/svg+xml-compressed</mediatype>
+        <mediatype>image/avif</mediatype>
+        <mediatype>image/heic</mediatype>
+        <mediatype>image/jxl</mediatype>    </provides>
     <content_rating type="oars-1.1" />
     <metadata_license>MIT</metadata_license>
     <project_license>MIT</project_license>
