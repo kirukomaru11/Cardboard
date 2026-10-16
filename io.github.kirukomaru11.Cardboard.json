@@ -1,0 +1,26 @@
+{
+    "app-id" : "io.github.kirukomaru11.Cardboard",
+    "runtime" : "org.gnome.Platform",
+    "runtime-version" : "master",
+    "sdk" : "org.gnome.Platform",
+    "command" : "cardboard",
+    "finish-args" : [ "--device=dri", "--share=network", "--socket=pulseaudio", "--socket=wayland" ],
+    "modules" : [
+        {
+            "name" : "main",
+            "buildsystem" : "simple",
+            "build-commands" : [ "python Cardboard.py --install" ],
+            "sources" : [
+                {
+                    "type" : "git",
+                    "url" : "https://github.com/kirukomaru11/Utils.git",
+                    "branch" : "main"
+                },
+                {
+                    "type" : "dir",
+                    "path" : "."
+                }
+            ]
+        }
+    ]
+}
