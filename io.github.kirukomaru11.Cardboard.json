@@ -9,7 +9,7 @@
         {
             "name" : "main",
             "buildsystem" : "simple",
-            "build-commands" : [ "mv utils/* .", "python Cardboard.py --install" ],
+            "build-commands" : [ "mv utils/* .", "env", "python ${FLATPAK_ID##*.}.py --install" ],
             "sources" : [
                 {
                     "type" : "git",
