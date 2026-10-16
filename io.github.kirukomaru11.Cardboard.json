@@ -9,16 +9,18 @@
         {
             "name" : "main",
             "buildsystem" : "simple",
-            "build-commands" : [ "python Cardboard.py --install" ],
+            "build-commands" : [ "mv utils/* .", "python Cardboard.py --install" ],
             "sources" : [
                 {
                     "type" : "git",
-                    "url" : "https://github.com/kirukomaru11/Utils.git",
+                    "url" : "https://github.com/kirukomaru11/Cardboard.git",
                     "branch" : "main"
                 },
                 {
-                    "type" : "dir",
-                    "path" : "."
+                    "type" : "git",
+                    "url" : "https://github.com/kirukomaru11/Utils.git",
+                    "branch" : "main",
+                    "dest" : "utils"
                 }
             ]
         }
