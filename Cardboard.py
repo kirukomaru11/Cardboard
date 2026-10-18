@@ -2203,14 +2203,14 @@ class Extractor(GObject.Object):
                 if self.text: self.from_str()
                 if self.paintable: self.current_catalog.append({"File URL": self.current_url})
                 if self.obj: self.from_json()
-            elif self.current_url.startswith(("archive://", "file://", "http://", "https://")) and not self.current_catalog:
-                if self.current_url.startswith("file://"):
-                    root = uri_decode(uri_relative_encode(self.current_url))
+            elif self.current_query.startswith(("archive://", "file://", "http://", "https://")) and not self.current_catalog:
+                if self.current_query.startswith("file://"):
+                    root = uri_decode(uri_relative_encode(self.current_query))
                     if exists(root):
                         if is_dir(root):
                             for r, d, f in walk(root): self.current_catalog.extend([{"File URL": Path(r.split(App.default.data_folder.get_path(), 1)[-1], i).lstrip("/") if r.startswith(App.default.data_folder.get_path()) else Path(r, i)} for i in sorted(f, key=alphabetical_sort) if Gio.content_type_guess(i)[0].startswith(("video", "audio", "image"))])
                     else: Task.invoke(Toast, f"{root} doesn't exist!")
-                if not self.current_catalog: self.current_catalog.append({"File URL": self.current_url})
+                if not self.current_catalog: self.current_catalog.append({"File URL": self.current_query})
             elif self.engine == "Cardboard": self.cardboard()
             if "/_/api/chan/" in self.current_url:
                 self.count = self.current_url.split("page=", 1)[0] + f"page={self.page + 1}" + (("&" + self.current_url.split("page=", 1)[-1].split("&", 1)[-1]) if "&" in self.current_url.split("page=", 1)[-1] else "")
@@ -2465,7 +2465,7 @@ class Extractor(GObject.Object):
                             it = mangas[id].copy()
                             it["File URL"] = f"https://mangadex.org/covers/{it['id']}/{i['attributes']['fileName']}"
                             self.current_catalog.append(it)
-                        self.count = (len(c), len(c))
+                        self.count = (len(self.current_catalog), len(self.current_catalog))
                     else: self.current_catalog.extend(self.obj["data"])
             if "chapter" in self.obj and "baseUrl" in self.obj and "result" in self.obj and self.obj["result"] == "ok": self.current_catalog.append({"File URL": [f"{self.obj['baseUrl']}/data/{self.obj['chapter']['hash']}/{i}" for i in self.obj["chapter"]["data"]]})
             if "/api/chan/post/" in self.current_url and not self.current_catalog: self.current_catalog.append(self.obj)
@@ -2505,8 +2505,8 @@ class Extractor(GObject.Object):
             if "/posts.json?limit=100&page=" in self.current_url and not len(self.queries) > 1:
                 if self.next_page:
                     self.count = (100, tab.get_child().total)
-                elif self.page == 1 and 100 > len(c):
-                    self.count = (100, len(c))
+                elif self.page == 1 and 100 > len(self.current_catalog):
+                    self.count = (100, len(self.current_catalog))
                 else:
                     try:
                         n = Online.Request(self.current_url.replace("/posts.json", "/counts/posts.json").replace("status:any", ""), headers=self.current_headers)
