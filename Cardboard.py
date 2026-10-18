@@ -555,7 +555,7 @@ class Tab(Adw.Bin):
             self.unload()
             self.set_child(Adw.Spinner())
         self.tab.set_loading(True)
-        Task(Extractor.do_fetch, self).start()
+        Extractor(self)
         return False
 
     def unload(self):
@@ -1108,7 +1108,7 @@ class PostEditor(PopupDialog):
             paintable = i.get_paintable()
             if not paintable: return Toast("No paintable")
             try:
-                i.tags = [i for i in json(Online.MultipartRequest("https://autotagger.donmai.us/evaluate", fields={"format": "json"}, files=[("file", "image.png", "image/png", paintable_get_texture(paintable.get_current_image()).save_to_png_bytes())]).decode("utf-8"))[0]["tags"]]
+                i.tags = [i for i in json(Online.MultipartRequest("https://autotagger.donmai.us/evaluate", fields={"format": "json"}, files=[("file", "image.png", "image/png", paintable_get_texture(paintable.get_current_image()).save_to_png_bytes())]).decode())[0]["tags"]]
                 Toast("Tags updated")
             except Exception as e: print(e, "Could not update tags")
         self.start()
@@ -1316,7 +1316,7 @@ class Post(PostData):
                 if "has_children" in p and p["has_children"]: t.append(f"parent:{p['id']}")
                 if "parent_id" in p and p["parent_id"] != None: t.append(f"parent:{p['parent_id']}")
             if "attributes" in p and all(i in p["attributes"] for i in ("title", "altTitles", "tags", "contentRating")) and "id" in p and type(p["id"]) == str: t.extend([i.lower().replace(" ", "_") for i in [tuple(p["attributes"]["title"].values())[0]] + [tuple(i.values())[0] for i in p["attributes"]["altTitles"]] + [tuple(i["attributes"]["name"].values())[0] for i in p["attributes"]["tags"]] + [p["attributes"]["contentRating"]]])
-            if "media" in p and "media_filename" in p["media"] and "media_orig" in p["media"]: t.extend([p["media"]["media_filename"], p["media"]["media_orig"]])
+            if "media" in p and p["media"] and "media_filename" in p["media"] and "media_orig" in p["media"]: t.extend([p["media"]["media_filename"], p["media"]["media_orig"]])
             if "filename" in p or "spoiler" in p: t.extend(([p["filename"] + p["ext"], str(p["tim"]) + p["ext"]] if "filename" in p else []) + (["spoiler"] if "spoiler" in p and p["spoiler"] == 1 else []))
             return t
         if k == "ID":
@@ -1337,8 +1337,8 @@ class Post(PostData):
             if "attributes" in p and "createdAt" in p["attributes"]: return GLib.DateTime.new_from_iso8601(p["attributes"]["createdAt"]).to_utc().to_unix()
         if k == "File URL":
             if "file_url" in p and "large_file_url" in p: return p["large_file_url"] if p["file_url"].endswith("zip") else p["file_url"]
-            if "media" in p and "remote_media_link" in p["media"] and p["media"]["remote_media_link"]: return p["media"]["remote_media_link"]
-            if "media" in p and "media_link" in p["media"]: return p["media"]["media_link"]
+            if "media" in p and p["media"] and "remote_media_link" in p["media"] and p["media"]["remote_media_link"]: return p["media"]["remote_media_link"]
+            if "media" in p and p["media"] and "media_link" in p["media"]: return p["media"]["media_link"]
             if "relationships" in p and "id" in p: return f"https://mangadex.org/covers/{p['id']}/{tuple(i for i in p['relationships'] if i['type'] == 'cover_art')[0]['attributes']['fileName']}"
         if k == "Source":
             if "embed" in p and type(p["embed"]) == str: return p["embed"].split('href="', 1)[-1].split('"', 1)[0]
@@ -1347,7 +1347,7 @@ class Post(PostData):
             if "comment_processed" in p: return (f"<b>{p['title']}</b><br>" if "title" in p and p["title"] else "") + p["comment_processed"]
             if "sub" in p or "com" in p: return (f"<b>{p['sub']}</b><br>" if "sub" in p else "") + (p["com"] if "com" in p else "")
         if k == "filename":
-            if "media" in p and "media_filename" in p["media"]: return p["media"]["media_filename"]
+            if "media" in p and p["media"] and "media_filename" in p["media"]: return p["media"]["media_filename"]
             if "filename" in p and "ext" in p: return p["filename"] + p["ext"]
         if k == "poster_id":
             if "poster_hash" in p: return p["poster_hash"]
@@ -2023,13 +2023,21 @@ class Search(Gtk.Box):
             self.do_complete([{"label": basename(i), "value": uri_encode(i.rstrip("/") or "/")} for i in Search.completer.get_completions(q)])
         elif q.startswith(("regex", "-regex")): self.do_complete([{"label": PostData.prop_get_title(i), "value": (("regex" if q.startswith("r") else "-regex") + "_" + i + ":")} for i in PostData.default_names])
         elif q.startswith(("board:", "-board:")): self.do_complete([{"label": i.name, "value": ("board:" if q.startswith("b") else "-board:") + i.name.replace(" ", "_")} for i in Boards])
-        else: Task(self.do_complete, q).start()
+        else:
+            self.add_css_class("searching")
+            Task(self.do_complete, q).start()
 
     def do_complete(self, q):
-        if isinstance(q, str):
-            q = Online.Request(f"https://danbooru.donmai.us/autocomplete.json?search[query]={q}&search[type]=tag_query&limit=15")
-            q = json(q.decode())
+        if isinstance(q, str) and q:
+            try:
+                q = Online.Request(f"https://danbooru.donmai.us/autocomplete.json?search[query]={q}&search[type]=tag_query&limit=15", headers={"User-Agent": "Cardboard"})
+                q = json(q.decode())
+            except Exception as e:
+                Task.invoke(Toast, e)
+        else:
+            q = []
         l = [Suggestion(label=f"{GLib.markup_escape_text(i['antecedent'])} → <b>{GLib.markup_escape_text(i['label'])}</b>" if "antecedent" in i else GLib.markup_escape_text(i["label"]), value=i["value"]) for i in q]
+        Task.invoke(self.remove_css_class, "searching")
         Task.invoke(self.autocomplete.model.replace, l)
         Task.invoke(self.autocomplete.listview.get_model().unselect_all)
 
@@ -2074,7 +2082,7 @@ class Pixiv:
             else: multipart.update({"grant_type": "refresh_token", "refresh_token": refresh_token, "get_secure_url": "1", "include_policy": "true"})
             ti = GLib.DateTime.new_now_utc().format("%Y-%m-%dT%H:%M:%S+00:00")
             headers = {**Pixiv.headers, "X-Client-Time": ti, "X-Client-Hash": (md5 := GLib.Checksum.new(GLib.ChecksumType.MD5), md5.update((ti + "28c1fdd170a5204386cb1313c7077b34f83e4aaf4aa829ce78c231e05b0bae2c").encode()), md5.get_string())[-1]}
-            res = json(Online.MultipartRequest(f"https://oauth.secure.pixiv.net/auth/token", fields=multipart, headers=headers).decode("utf-8"))
+            res = json(Online.MultipartRequest(f"https://oauth.secure.pixiv.net/auth/token", fields=multipart, headers=headers).decode())
             if "access_token" in res: Online.add_cookie(name="refresh_token", value=res["access_token"], domain="pixiv.net", expires=GLib.DateTime.new_now_utc().add_hours(1).to_unix())
             Task.invoke(w.close)
             Task.invoke(tab.load)
@@ -2093,80 +2101,210 @@ class Pixiv:
         w.view.connect("resource-load-started", Pixiv.monitor_code)
         w.tab, w.code_verifier, w.code_challenge = d
 
-class Extractor:
-    def from_str(c, u, response, count, page, headers):
-        if "challenge-error-text" in response[0] or "This website is running Anubis" in response[0]:
-            Task.invoke(Online.Intervention, u, response[0])
-            return c, u, response, count, headers
-        elif "https://ogp.me/ns" in response[0] and u.rsplit("/", 1)[-1].rsplit("?", 1)[0].isdigit() and "/user/" in u:
-            headers.update({"Accept": "text/css"})
-            start, rest = u.split("://", 1)[-1].split("/", 1)
-            u = "https://" + start.strip("/") + "/api/v1/" + rest.strip("/").split("?", 1)[0]
-            if not "post" in u:
-                u += "/posts?o=" + str((page - 1) * 50)
-            response = Extractor.response_to_object(u, headers=headers)
-        elif "Running Moebooru" in response[0] and not ".xml" in u:
-            e = "Moebooru"
-            u = Extractor.url_from_url(u, e, page, True)
-            response = Extractor.response_to_object(u, headers=headers)
-        elif "new Danbooru.Notice(null)" in response[0] and not ".json" in u:
-            e = "Danbooru"
-            u = Extractor.url_from_url(u, e, page, True)
-            response = Extractor.response_to_object(u, headers=headers)
-        elif 'content="FoolFuuka 2.2.0"' in response[0] and not "/_/api/chan" in u:
-            e = "FoolFuuka"
-            u = Extractor.url_from_url(u, e, page, True)
-            response = Extractor.response_to_object(u, headers=headers)
-        elif "vichan.net/" in response[0] and not ".json" in u:
-            e = "vichan"
-            u = Extractor.url_from_url(u, e, page, True)
-            response = Extractor.response_to_object(u, headers=headers)
-        elif "404" in response[0] and "What you are looking for is not here." in response[0] or "/official/images/404.png" in response[0] and "Click me to go home" in response[0]:
-            Toast(f"{u} returned 404")
-            return c, u, response, count, headers
-        if 'id="chapter-images"' in response[0]:
+class Extractor(GObject.Object):
+    __gtype_name__ = "Extractor"
+
+    tab = GObject.Property(type=Tab)
+    paintable = GObject.Property(type=Gdk.Paintable)
+    text = GObject.Property(type=str)
+
+    current_url = GObject.Property(type=str)
+    current_query = GObject.Property(type=str)
+    current_headers = GObject.Property(type=object)
+    current_catalog = GObject.Property(type=object)
+
+    obj = GObject.Property(type=object)
+    next_page = GObject.Property(type=object)
+    queries = GObject.Property(type=object)
+    page = GObject.Property(type=int)
+    board = GObject.Property(type=str)
+    engine = GObject.Property(type=str)
+    catalog = GObject.Property(type=object)
+    count = GObject.Property(type=object)
+
+    is_str = GObject.Property(type=bool, default=False)
+
+    def __init__(self, tab):
+        super().__init__()
+        self.catalog = []
+        self.tab = tab
+        self.next_page = self.tab.next_page
+        self.queries, self.page, self.board = self.tab.get_current_query()[:-1]
+        self.is_str = type(self.queries) == str
+        Task(self.do_fetch).start()
+
+    def response_to_object(self):
+        t, tt = "", False
+        try:
+            t = Online.Request(self.current_url, self.current_headers)
+            try:
+                tt = t.decode().strip()
+                if not tt:
+                    Online.Intervention(self.current_url)
+                    return
+                self.text = tt
+                if tt.startswith(("<?xml", "<!DOCTYPE html")): return
+                self.obj = json(tt)
+                return
+            except Exception as e:
+                if tt:
+                    self.text = tt
+                    return
+                try:
+                    self.paintable = PaintableTask.data_to_paintable(t, self.current_url)
+                    return
+                except Exception as e:
+                    print(self.current_url, e)
+                    Online.Intervention(self.current_url)
+                return
+        except Exception as e:
+            print(self.current_url, e)
+            Online.Intervention(self.current_url)
+            return
+
+    def do_fetch(self):
+        final_queries = []
+        self.queries = [i for i in self.queries.split(" + ") if i] if self.is_str else self.queries
+        if not self.queries:
+            self.queries = [""]
+        for query in self.queries:
+            self.current_query = query
+            self.obj = None
+            self.text = self.current_url = ""
+            self.current_catalog = []
+            self.current_headers = {}
+            if not self.is_str:
+                self.engine = getattr(Boards.list.default.get_model()[self.board], "engine", "Cardboard")
+                continue
+            if self.next_page and isinstance(self.tab.get_child().count, str) and self.tab.get_child().count == "end":
+                final_queries.append(self.current_query)
+                self.page -= 1
+                continue
+            self.query_to_url()
+            if self.next_page:
+                if isinstance(self.tab.get_child().count, str):
+                    self.current_url = self.tab.get_child().count
+            final_queries.append(self.current_query)
+            if any(i in self.current_url for i in ("mangadex.org", ".donmai.us")): self.current_headers.update({"User-Agent": "Cardboard"})
+            if "pinterest.com" in self.current_url:
+                if not Online.get_cookie(domain="pinterest.com", name="csrftoken"): Online.add_cookie(name="csrftoken", value=urandom(16).hex(), domain=".pinterest.com")
+                self.current_headers.update(PINTEREST_HEADERS)
+            if self.engine == "Nitter": self.current_headers.update(NITTER_HEADERS)
+            if "pixiv.net" in self.current_url:
+                auth = Pixiv.get_auth(self.tab)
+                if not auth:
+                    Task.invoke(Toast, "Pixiv authentication required...")
+                    continue
+                self.current_headers.update({**Pixiv.headers, "Authorization": f"Bearer {auth}"})
+            if "/api/v1" in self.current_url: self.current_headers.update({"Accept": "text/css"})
+            if not (self.text or self.obj) and self.current_url and is_online(self.current_url) and not self.current_catalog: self.response_to_object()
+            if "youtube.com" in self.current_url and is_online(self.current_url): self.current_catalog.append({"ID": self.current_url.replace("www.", "").replace("be.com/watch?v=", ".be/").split("?")[0].rsplit("/", 1)[-1], "Source": self.current_url.replace("www.", "").replace("be.com/watch?v=", ".be/").split("?")[0], "File URL": self.current_url.replace("www.", "").replace("be.com/watch?v=", ".be/").split("?")[0].replace("youtu.be", "img.youtube.com/vi").split("&", 1)[0] + "/maxresdefault.jpg"})
+            elif (self.text or self.obj or self.paintable):
+                if self.text: self.from_str()
+                if self.paintable: self.current_catalog.append({"File URL": self.current_url})
+                if self.obj: self.from_json()
+            elif self.current_url.startswith(("archive://", "file://", "http://", "https://")) and not self.current_catalog:
+                if self.current_url.startswith("file://"):
+                    root = uri_decode(uri_relative_encode(self.current_url))
+                    if exists(root):
+                        if is_dir(root):
+                            for r, d, f in walk(root): self.current_catalog.extend([{"File URL": Path(r.split(App.default.data_folder.get_path(), 1)[-1], i).lstrip("/") if r.startswith(App.default.data_folder.get_path()) else Path(r, i)} for i in sorted(f, key=alphabetical_sort) if Gio.content_type_guess(i)[0].startswith(("video", "audio", "image"))])
+                    else: Task.invoke(Toast, f"{root} doesn't exist!")
+                if not self.current_catalog: self.current_catalog.append({"File URL": self.current_url})
+            elif self.engine == "Cardboard": self.cardboard()
+            if "/_/api/chan/" in self.current_url:
+                self.count = self.current_url.split("page=", 1)[0] + f"page={self.page + 1}" + (("&" + self.current_url.split("page=", 1)[-1].split("&", 1)[-1]) if "&" in self.current_url.split("page=", 1)[-1] else "")
+            if isinstance(self.current_catalog, dict):
+                self.current_catalog = [self.current_catalog]
+            if self.current_query and not self.current_query.startswith(("http://", "archive://", "file://", "https://")) and not is_thread(query, self.engine):
+                for i in [i for i in self.current_catalog]:
+                    co = Post.get_property(i, "comment")
+                    if co and not self.current_query.lower() in co.lower(): self.current_catalog.remove(i)
+            for i in self.current_catalog:
+                if "File URL" in i and "files.catbox.moe" in i["File URL"]: i.setdefault("ID", self.current_url.split(".moe/", 1)[-1].strip("/"))
+            self.catalog.extend(self.current_catalog)
+        if self.count == None:
+            self.count = (len(self.catalog), len(self.catalog))
+        if self.is_str and len(self.queries) > 1: self.catalog.sort(key=id_sort, reverse=True)
+        self.tab.set_current_query([" + ".join([i for i in final_queries if i]) if self.is_str else self.queries, self.page, self.board, self.catalog])
+        Task.invoke(self.tab.content, self.tab.get_current_query(), self.engine, self.count, self.paintable, self.next_page)
+        for i in self.list_properties():
+            if i.name == "page": setattr(self, i.name, 0)
+            else: setattr(self, i.name.replace("-", "_"), None)
+
+    def from_str(self):
+        if "challenge-error-text" in self.text or "This website is running Anubis" in self.text:
+            Task.invoke(Online.Intervention, self.current_url, self.text)
+            return
+        elif "https://ogp.me/ns" in self.text and self.current_url.rsplit("/", 1)[-1].rsplit("?", 1)[0].isdigit() and "/user/" in self.current_url:
+            self.current_headers.update({"Accept": "text/css"})
+            start, rest = self.current_url.split("://", 1)[-1].split("/", 1)
+            self.current_url = "https://" + start.strip("/") + "/api/v1/" + rest.strip("/").split("?", 1)[0]
+            if not "post" in self.current_url:
+                self.current_url += "/posts?o=" + str((self.page - 1) * 50)
+            self.response_to_object()
+        elif "Running Moebooru" in self.text and not ".xml" in self.current_url:
+            self.engine = "Moebooru"
+            self.url_from_url(True)
+            self.response_to_object()
+        elif "new Danbooru.Notice(null)" in self.text and not ".json" in self.current_url:
+            self.engine = "Danbooru"
+            self.url_from_url(True)
+            self.response_to_object()
+        elif 'content="FoolFuuka 2.2.0"' in self.text and not "/_/api/chan" in self.current_url:
+            self.engine = "FoolFuuka"
+            self.url_from_url(True)
+            self.response_to_object()
+        elif "vichan.net/" in self.text and not ".json" in self.current_url:
+            self.engine = "vichan"
+            self.url_from_url( True)
+            self.response_to_object()
+        elif "404" in self.text and "What you are looking for is not here." in self.text or "/official/images/404.png" in self.text and "Click me to go home" in self.text:
+            Task.invoke(Toast, f"{u} returned 404")
+            return
+        if 'id="chapter-images"' in self.text:
             l = []
-            for i in response[0].split("<img"):
+            for i in self.text.split("<img"):
                 a = get_attribute(i, "src", default="").split("\"", 1)[0]
                 if a: l.append(a)
-            if l: c.append({"File URL": l, "Source": query})
-        if "a href=\"/chapters/" in response[0] and "/series/" in u and u.endswith("/full-chapter-list"):
-            c = {"Chapters": [{"Title": i.split("</span>", 1)[0], "URL": u.split("/series/", 1)[0] + "/chapters/" + i.split("last_read_chapter === '", 1)[-1].split("'", 1)[0]} for i in response[0].split("<span class=\"\">")[1:]]}
-            count = ""
-        if response[0].startswith("<rss xml"):
-            if "href=\"https://weebcentral" in response[0]:
-                c = {"Chapters": [m.groupdict() for m in ITEM_REGEX.finditer(response[0])]}
-                main_title = response[0].split("</title>", 1)[0].split("<title>", 1)[-1]
-                for i in c["Chapters"]:
+            if l: self.current_catalog.append({"File URL": l, "Source": self.current_query})
+        if "a href=\"/chapters/" in self.text and "/series/" in self.current_url and self.current_url.endswith("/full-chapter-list"):
+            self.current_catalog = {"Chapters": [{"Title": i.split("</span>", 1)[0], "URL": self.current_url.split("/series/", 1)[0] + "/chapters/" + i.split("last_read_chapter === '", 1)[-1].split("'", 1)[0]} for i in self.text.split("<span class=\"\">")[1:]]}
+            self.count = ""
+        if self.text.startswith("<rss xml"):
+            if "href=\"https://weebcentral" in self.text:
+                self.current_catalog = {"Chapters": [m.groupdict() for m in ITEM_REGEX.finditer(self.text)]}
+                main_title = self.text.split("</title>", 1)[0].split("<title>", 1)[-1]
+                for i in self.current_catalog["Chapters"]:
                     i["Title"] = i["Title"].split(main_title, 1)[-1]
-                count = ""
+                self.count = ""
             head = ""
-        elif response[0].startswith("<?xml"):
-            if "count=" in response[0]:
-                count = (100, int(get_attribute(response[0], "count", default=0)))
-            for m in POST_REGEX.finditer(response[0]):
+        elif self.text.startswith("<?xml"):
+            if "count=" in self.text:
+                self.count = (100, int(get_attribute(self.text, "count", default=0)))
+            for m in POST_REGEX.finditer(self.text):
                 attrs = {}
                 for a, dq, sq, unq in ATTR_REGEX.findall(m.group(1) or ""):
                     attrs[a] = dq or sq or unq or ""
-                c.append(attrs)
+                self.current_catalog.append(attrs)
             head = ""
         else:
-            head = response[0].split("</head>", 1)[0]
+            head = self.text.split("</head>", 1)[0]
         if "site_name" in head and get_attribute(head.split("site_name", 1)[-1], "content") == "Nitter":
             global NITTER_INSTANCE
-            if "Instance has no auth tokens, or is fully rate limited." in response[0]:
-                Toast("Nitter instance is rate limited")
+            if "Instance has no auth tokens, or is fully rate limited." in self.text:
+                Task.invoke(Toast, "Nitter instance is rate limited")
                 NITTER_SKIP.append(NITTER_INSTANCE)
                 NITTER_INSTANCE = False
-                return c, u, response, count, headers
-            if "Search disabled" in response[0]:
-                Toast("Nitter instance has search disabled")
+                return
+            if "Search disabled" in self.text:
+                Task.invoke(Toast, "Nitter instance has search disabled")
                 NITTER_SKIP.append(NITTER_INSTANCE)
                 NITTER_INSTANCE = False
-                return c, u, response, count, headers
-            count = (u.split("?", 1)[0] + get_attribute(response[0].split("show-more", 1)[-1].split("<a", 1)[-1], "href")) if '<div class="show-more">' in response[0] else "end"
-            if "timeline-item" in response[0]:
-                for i in response[0].split("timeline-item ")[1:]:
+                return
+            self.count = (self.current_url.split("?", 1)[0] + get_attribute(self.text.split("show-more", 1)[-1].split("<a", 1)[-1], "href")) if '<div class="show-more">' in self.text else "end"
+            if "timeline-item" in self.text:
+                for i in self.text.split("timeline-item ")[1:]:
                     if not "attachment" in i: continue
                     user = get_attribute(i, "data-username")
                     _id = get_attribute(i.split("tweet-date", 1)[-1], "href").rsplit("/", 1)[-1].split("#")[0]
@@ -2188,48 +2326,47 @@ class Extractor:
                             file = "https://pbs.twimg.com/media/" + h.split("%2F")[-1]
                         elif s:
                             file = s.replace("/pic/", "https://").replace("%2F", "/").split("?", 1)[0]
-                        c.append({"ID": f"{_id}{('_' + str(n)) if n > 0 else ''}", "Tags": tags, "Notes": body.strip(), "Source": f"https://x.com/{user}/status/{_id}", "File URL": file})
+                        self.current_catalog.append({"ID": f"{_id}{('_' + str(n)) if n > 0 else ''}", "Tags": tags, "Notes": body.strip(), "Source": f"https://x.com/{user}/status/{_id}", "File URL": file.split("%", 1)[0]})
         else:
             for i in ("og:video:secure_url", "og:image:secure_url", "og:image"):
                 if i in head:
-                    p = {"File URL": get_attribute(head.split(i, 1)[-1], "content").replace(",resize:640x,quality:90x75", ""), "Source": u.replace("#comments", "")}
+                    p = {"File URL": get_attribute(head.split(i, 1)[-1], "content").replace(",resize:640x,quality:90x75", ""), "Source": self.current_url.replace("#comments", "")}
                     if "https://media" in p["File URL"] and ".tenor.com/" in p["File URL"]:
                         p["ID"] = p["File URL"].rsplit("/", 1)[0].rsplit("/", 1)[-1]
-                    elif "ifunny.co" in u:
+                    elif "ifunny.co" in self.current_url:
                         p["ID"] = p["Source"].rsplit("/", 1)[-1].rsplit("-", 1)[-1]
-                        if "b7a_" in response[0]:
-                            p["Tags"] = [i.split("</span", 1)[0].strip("\">#") for i in response[0].split("b7a_")[1:]]
-                    c.append(p)
+                        if "b7a_" in self.text:
+                            p["Tags"] = [i.split("</span", 1)[0].strip("\">#") for i in self.text.split("b7a_")[1:]]
+                    self.current_catalog.append(p)
                     break
             if "og:title" in head:
-                for i in c: i.setdefault("Notes", get_attribute(head.split("og:title", 1)[-1], "content").replace(" on DeviantArt", "").replace("- iFunny", "").strip())
+                for i in self.current_catalog: i.setdefault("Notes", get_attribute(head.split("og:title", 1)[-1], "content").replace(" on DeviantArt", "").replace("- iFunny", "").strip())
             elif "<title>" in head:
-                for i in c: i.setdefault("Notes", head.split("<title>", 1)[-1].split("</title>")[0].replace(" on DeviantArt", "").replace("- iFunny", "").strip())
+                for i in self.current_catalog: i.setdefault("Notes", head.split("<title>", 1)[-1].split("</title>")[0].replace(" on DeviantArt", "").replace("- iFunny", "").strip())
             if "keywords" in head:
-                for i in c:
+                for i in self.current_catalog:
                     i.setdefault("Tags", [])
                     i["Tags"].extend([it.replace(" ", "_").strip("_") for it in get_attribute(head.split("keywords", 1)[-1], "content").split(",")])
-        return c, u, response, count, headers
 
-    def from_json(c, u, j, queries, query, count, page, next_page, headers):
-        if type(j) == dict:
-            if "pinterest.com/resource/" in u:
-                if not "resource_response" in j: return c, count, next_page
-                if not "data" in j["resource_response"]: return c, count, next_page
-                if "bookmarks" in j["resource"]["options"]:
-                    if j["resource"]["options"]["bookmarks"][0] == "-end-":
-                        count = "end"
+    def from_json(self):
+        if type(self.obj) == dict:
+            if "pinterest.com/resource/" in self.current_url:
+                if not "resource_response" in self.obj: return
+                if not "data" in self.obj["resource_response"]: return
+                if "bookmarks" in self.obj["resource"]["options"]:
+                    if self.obj["resource"]["options"]["bookmarks"][0] == "-end-":
+                        self.count = "end"
                     else:
-                        count = f"{u.split('data=', 1)[0]}data={json_string({'options': j['resource']['options']})}&source_url="
-                        if next_page and json(u.split("data=", 1)[-1].rsplit("&source_url=", 1)[0])["options"]["bookmarks"] == j["resource"]["options"]["bookmarks"]:
-                            count = "end"
-                j = j["resource_response"]["data"]
-                if isinstance(j, dict):
-                    if "results" in j:
-                        j = j["results"]
+                        self.count = f"{self.current_url.split('data=', 1)[0]}data={json_string({'options': self.obj['resource']['options']})}&source_url="
+                        if self.next_page and json(self.current_url.split("data=", 1)[-1].rsplit("&source_url=", 1)[0])["options"]["bookmarks"] == self.obj["resource"]["options"]["bookmarks"]:
+                            self.count = "end"
+                self.obj = self.obj["resource_response"]["data"]
+                if isinstance(self.obj, dict):
+                    if "results" in self.obj:
+                        self.obj = self.obj["results"]
                     else:
-                        j = [j]
-                for i in j:
+                        self.obj = [self.obj]
+                for i in self.obj:
                     if "images" in i:
                         tags = []
                         notes = i["seo_title"] if "seo_title" in i else ""
@@ -2238,36 +2375,36 @@ class Extractor:
                                 i["id"] = i["pin_join"]["canonical_pin"]["id"]
                             for it in i["pin_join"]["visual_annotation"]: tags.append(it.replace(" ", "-").lower())
                         if "board" in i: tags.extend([i["board"]["name"].replace(" ", "-").lower(), f"https://pinterest.com{i['board']['url'].lower()}"])
-                        c.append({"ID": i["id"], "Tags": tags, "Notes": notes.strip(), "Source": f"https://pinterest.com/pin/{i['id']}", "File URL": i["images"]["orig"]["url"]})
-                j = {}
-            if u.startswith("https://www.zerochan.net/") and u.split("/")[-1].split("?")[0].isdigit(): c.append({"File URL": j["full"], "Source": j["source"], "Tags": j["tags"]})
+                        self.current_catalog.append({"ID": i["id"], "Tags": tags, "Notes": notes.strip(), "Source": f"https://pinterest.com/pin/{i['id']}", "File URL": i["images"]["orig"]["url"]})
+                self.obj = {}
+            if self.current_url.startswith("https://www.zerochan.net/") and self.current_url.split("/")[-1].split("?")[0].isdigit(): self.current_catalog.append({"File URL": self.obj["full"], "Source": self.obj["source"], "Tags": self.obj["tags"]})
 
-            if "artstation.com/projects/" in u:
-                for i in j["assets"]:
+            if "artstation.com/projects/" in self.current_url:
+                for i in self.obj["assets"]:
                     file_url = i["image_url"]
                     for it in ("/small/", "/large/", "/medium/"):
                         file_url = file_url.replace(it, "/4k/")
-                    c.append({"File URL": file_url.split("?")[0], "Source": query, "Created At": GLib.DateTime.new_from_iso8601(j["created_at"]).to_utc().to_unix(), "Tags": j["tags"] + j["title"].split(" ") + j["user"]["username"].split(" ")})
-            if "/api/chan/thread/" in u:
-                k = next(iter(j), False)
+                    self.current_catalog.append({"File URL": file_url.split("?")[0], "Source": self.current_query, "Created At": GLib.DateTime.new_from_iso8601(self.obj["created_at"]).to_utc().to_unix(), "Tags": self.obj["tags"] + self.obj["title"].split(" ") + self.obj["user"]["username"].split(" ")})
+            if "/api/chan/thread/" in self.current_url:
+                k = next(iter(self.obj), False)
                 if k:
-                    if "op" in j[k]: c.append(j[k]["op"])
-                    if "posts" in j[k]: c.extend(j[k]["posts"].values())
-            if "total" in j and type(j["total"]) == int:
-                count = (100, j["total"])
-            if all(i in j for i in ("media_id", "id", "tags", "pages", "title", "num_pages")):
-                if query.endswith("/"):
-                    c = [{"File URL": [f"https://i2.{u.strip('https://').split('api/v2')[0]}{i['path']}" for i in j["pages"]]}]
+                    if "op" in self.obj[k]: self.current_catalog.append(self.obj[k]["op"])
+                    if "posts" in self.obj[k]: self.current_catalog.extend(self.obj[k]["posts"].values())
+            if "total" in self.obj and type(self.obj["total"]) == int:
+                self.count = (100, self.obj["total"])
+            if all(i in self.obj for i in ("media_id", "id", "tags", "pages", "title", "num_pages")):
+                if self.current_query.endswith("/"):
+                    self.current_catalog = [{"File URL": [f"https://i2.{self.current_url.strip('https://').split('api/v2')[0]}{i['path']}" for i in self.obj["pages"]]}]
                 else:
-                    c = [{"ID": str(j["id"]), "Notes": "\n".join(tuple(i for i in j["title"].values())).strip(), "File URL": f"https://t2.{u.strip('https://').split('api/v2')[0]}{j['cover']['path']}", "Tags": [i["name"].replace(" ", "_") for i in j["tags"]], "Source": query}]
-            if any(i in j for i in ("illust", "illusts")):
+                    self.current_catalog = [{"ID": str(self.obj["id"]), "Notes": "\n".join(tuple(i for i in self.obj["title"].values())).strip(), "File URL": f"https://t2.{self.current_url.strip('https://').split('api/v2')[0]}{self.obj['cover']['path']}", "Tags": [i["name"].replace(" ", "_") for i in self.obj["tags"]], "Source": self.current_query}]
+            if any(i in self.obj for i in ("illust", "illusts")):
                 il = []
-                if "illust" in j: il.append(j["illust"])
-                if "illusts" in j: il.extend(j["illusts"])
-                if "next_url" in j:
-                    count = j["next_url"]
+                if "illust" in self.obj: il.append(self.obj["illust"])
+                if "illusts" in self.obj: il.extend(self.obj["illusts"])
+                if "next_url" in self.obj:
+                    self.count = self.obj["next_url"]
                 else:
-                    count = "end"
+                    self.count = "end"
                 for p in il:
                     source = f"https://pixiv.net/artworks/{p['id']}"
                     notes = "\n".join([i for i in [p["title"], p["caption"]] if i])
@@ -2275,26 +2412,26 @@ class Extractor:
                     if p["illust_ai_type"] == 2: tags.append("ai_generated")
                     for i in [p["user"]["account"], p["user"]["name"], f"https://pixiv.net/users/{p['user']['id']}"]: tags.insert(0, i)
                     date = GLib.DateTime.new_from_iso8601(p["create_date"]).to_utc().to_unix()
-                    if p["meta_single_page"]: c.append({"ID": p["id"], "Tags": tags, "Created At": date, "Notes": notes.strip(), "Source": source, "File URL": p["meta_single_page"]["original_image_url"]})
+                    if p["meta_single_page"]: self.current_catalog.append({"ID": p["id"], "Tags": tags, "Created At": date, "Notes": notes.strip(), "Source": source, "File URL": p["meta_single_page"]["original_image_url"]})
                     else:
-                        for n, i in enumerate(p["meta_pages"]): c.append({"ID": f"{p['id']}_{n}", "Tags": tags, "Created At": date, "Notes": notes.strip(), "Source": source, "File URL": i["image_urls"]["original"]})
-            if "/api/v1/" in u:
-                if "post" in j:
-                    j = j["post"]
-                j = [j]
-            if "post" in j and type(j["post"]) == list:
-                if "@attributes" in j:
-                    count = (100, j["@attributes"]["count"])
-                c.extend(j["post"])
-            if "posts" in j and type(j["posts"]) == list: c.extend(j["posts"])
-            if "data" in j and type(j["data"]) == list:
-                if "/manga/" in u:
-                    if j["total"] > (j["offset"] + j["limit"]):
-                        count = u.split("offset=", 1)[0] + f"offset={j['offset'] + j['limit']}&" +  u.split("offset=", 1)[-1].split("&", 1)[-1]
+                        for n, i in enumerate(p["meta_pages"]): self.current_catalog.append({"ID": f"{p['id']}_{n}", "Tags": tags, "Created At": date, "Notes": notes.strip(), "Source": source, "File URL": i["image_urls"]["original"]})
+            if "/api/v1/" in self.current_url:
+                if "post" in self.obj:
+                    self.obj = self.obj["post"]
+                self.obj = [self.obj]
+            if "post" in self.obj and type(self.obj["post"]) == list:
+                if "@attributes" in self.obj:
+                    self.count = (100, self.obj["@attributes"]["count"])
+                self.current_catalog.extend(self.obj["post"])
+            if "posts" in self.obj and type(self.obj["posts"]) == list: self.current_catalog.extend(self.obj["posts"])
+            if "data" in self.obj and type(self.obj["data"]) == list:
+                if "/manga/" in self.current_url:
+                    if self.obj["total"] > (self.obj["offset"] + self.obj["limit"]):
+                        self.count = self.current_url.split("offset=", 1)[0] + f"offset={self.obj['offset'] + self.obj['limit']}&" + self.current_url.split("offset=", 1)[-1].split("&", 1)[-1]
                     else:
-                        count = ""
+                        self.count = ""
                     ll = []
-                    for i in j["data"]:
+                    for i in self.obj["data"]:
                         if i.get("attributes", {}).get("externalUrl", False):
                             url = i["attributes"]["externalUrl"]
                         elif i.get("attributes", {}).get("isUnavailable", False) or not i.get("id", False):
@@ -2317,24 +2454,24 @@ class Extractor:
                         chapter["Title"] = " ".join([it.strip() for it in chapter["Title"] if it.strip()])
                         chapter["Subtitle"] = " ".join([it.strip() for it in chapter["Subtitle"] if it.strip()])
                         ll.append(chapter)
-                    c = {"Chapters": ll}
-                elif j["data"]:
-                    if len(j["data"]) == 1:
-                        covers = sorted(json(Extractor.response_to_object(u.split("/manga", 1)[0] + "/cover?limit=100&manga[]=" + "&manga[]=".join([i["id"] for i in j["data"]]), headers=headers)[0])["data"], key=mangadex_volume_sort)
-                        mangas = dict((i["id"], i) for i in j["data"])
+                    self.current_catalog = {"Chapters": ll}
+                elif self.obj["data"]:
+                    if len(self.obj["data"]) == 1:
+                        covers = sorted(json(Online.Request(self.current_url.split("/manga", 1)[0] + "/cover?limit=100&manga[]=" + "&manga[]=".join([i["id"] for i in self.obj["data"]]), headers=self.current_headers))["data"], key=mangadex_volume_sort)
+                        mangas = dict((i["id"], i) for i in self.obj["data"])
                         for i in covers:
                             id = next((it["id"] for it in i["relationships"] if it["type"] == "manga"), False)
                             if not id or not id in mangas: continue
                             it = mangas[id].copy()
                             it["File URL"] = f"https://mangadex.org/covers/{it['id']}/{i['attributes']['fileName']}"
-                            c.append(it)
-                        count = (len(c), len(c))
-                    else: c.extend(j["data"])
-            if "chapter" in j and "baseUrl" in j and "result" in j and j["result"] == "ok": c.append({"File URL": [f"{j['baseUrl']}/data/{j['chapter']['hash']}/{i}" for i in j["chapter"]["data"]]})
-            if "/api/chan/post/" in u and not c: c.append(j)
-        if type(j) == list:
-            if "/api/v1" in u:
-                for post in j:
+                            self.current_catalog.append(it)
+                        self.count = (len(c), len(c))
+                    else: self.current_catalog.extend(self.obj["data"])
+            if "chapter" in self.obj and "baseUrl" in self.obj and "result" in self.obj and self.obj["result"] == "ok": self.current_catalog.append({"File URL": [f"{self.obj['baseUrl']}/data/{self.obj['chapter']['hash']}/{i}" for i in self.obj["chapter"]["data"]]})
+            if "/api/chan/post/" in self.current_url and not self.current_catalog: self.current_catalog.append(self.obj)
+        if type(self.obj) == list:
+            if "/api/v1" in self.current_url:
+                for post in self.obj:
                     if "error" in post: continue
                     created_at = GLib.DateTime.new_from_iso8601(post["published"], GLib.TimeZone.new_utc()).to_unix() if "published" in post else GLib.DateTime.new_now_utc().to_unix()
                     files = [post.get("file", {})] + post.get("previews", []) + post.get("attachments", [])
@@ -2343,7 +2480,7 @@ class Extractor:
                         if not "name" in i or not Gio.content_type_guess(i["name"])[0].startswith(("video", "image")): continue
                         if not any(it["path"] == i["path"] for it in fs): fs.append(i)
                     files = fs
-                    base = "https://file." + u.split("://", 1)[-1].split("/api", 1)[0]
+                    base = "https://file." + self.current_url.split("://", 1)[-1].split("/api", 1)[0]
                     tags = post.get("tags", None)
                     if isinstance(tags, str):
                         tags = tags.lstrip("{").rstrip("}").split(",")
@@ -2352,46 +2489,48 @@ class Extractor:
                     if "user" in post: tags.insert(0, str(post["user"]))
                     prefix = (post.get("service", "") + "-" + str(post.get("id", 0))).strip("-")
                     notes = ("\n".join([post.get("title", "\n"), post.get("content", "\n")])).strip("\n")
-                    source = u.replace("/api/v1", "").rsplit("/post", 1)[0] + "/post/" + str(post.get("id", 0))
+                    source = self.current_url.replace("/api/v1", "").rsplit("/post", 1)[0] + "/post/" + str(post.get("id", 0))
                     for n, i in enumerate(files):
                         file_url = f'{i["server"] if "server" in i else base}/data{i["path"]}'
-                        c.append({"ID": prefix + ("" if n == 0 else f"-{n + 1}"), "File URL": file_url if post.get("has_full", True) else PostData.get_preview_url(file_url), "Tags": tags, "Notes": notes, "Source": source, "Created At": created_at})
-                count = "end" if 50 > len(j) else (u.split("?o=", 1)[0] + "?o=" + str(page * 50))
-            if u.startswith("https://www.reddit.com/r/") and "/comments/" in u:
-                _id = u.rsplit(".", 1)[0].rsplit("/", 1)[-1]
-                if "media_metadata" in j[0]["data"]["children"][0]["data"]:
-                    for n, i in enumerate(j[0]["data"]["children"][0]["data"]["media_metadata"].values()): c.append({"ID": f"{_id}{('_' + str(n)) if n > 0 else ''}", "Notes": j[0]["data"]["children"][0]["data"]["selftext"].strip(), "File URL": f"https://i.redd.it/{i['id']}.{i['m'].split('/')[-1]}", "Source": query})
-                elif j[0]["data"]["children"][0]["data"]["media"] and "reddit_video" in j[0]["data"]["children"][0]["data"]["media"]: c.append({"ID": _id, "Notes": "\n".join([j[0]["data"]["children"][0]["data"]["title"], j[0]["data"]["children"][0]["data"]["selftext"]]).strip(), "File URL": j[0]["data"]["children"][0]["data"]["media"]["reddit_video"]["fallback_url"], "Source": query})
-                else: c.append({"ID": _id, "Notes": "\n".join([j[0]["data"]["children"][0]["data"]["title"], j[0]["data"]["children"][0]["data"]["selftext"]]).strip(), "File URL": j[0]["data"]["children"][0]["data"]["url"], "Source": query})
-            if all(type(i) == dict and "page" in i and "threads" in i for i in j): c.extend([thread for i in j for thread in i["threads"]])
-            elif not ("/api/v1" in u or u.startswith("https://www.reddit.com/r/")): c.extend(j)
-            if "/posts.json?limit=100&page=" in u and not len(queries) > 1:
-                if next_page:
-                    count = (100, tab.get_child().total)
-                elif page == 1 and 100 > len(c):
-                    count = (100, len(c))
+                        self.current_catalog.append({"ID": prefix + ("" if n == 0 else f"-{n + 1}"), "File URL": file_url if post.get("has_full", True) else PostData.get_preview_url(file_url), "Tags": tags, "Notes": notes, "Source": source, "Created At": created_at})
+                self.count = "end" if 50 > len(self.obj) else (self.current_url.split("?o=", 1)[0] + "?o=" + str(self.page * 50))
+            if self.current_url.startswith("https://www.reddit.com/r/") and "/comments/" in self.current_url:
+                _id = self.current_url.rsplit(".", 1)[0].rsplit("/", 1)[-1]
+                if "media_metadata" in self.obj[0]["data"]["children"][0]["data"]:
+                    for n, i in enumerate(self.obj[0]["data"]["children"][0]["data"]["media_metadata"].values()): self.current_catalog.append({"ID": f"{_id}{('_' + str(n)) if n > 0 else ''}", "Notes": self.obj[0]["data"]["children"][0]["data"]["selftext"].strip(), "File URL": f"https://i.redd.it/{i['id']}.{i['m'].split('/')[-1]}", "Source": self.current_query})
+                elif self.obj[0]["data"]["children"][0]["data"]["media"] and "reddit_video" in self.obj[0]["data"]["children"][0]["data"]["media"]: self.current_catalog.append({"ID": _id, "Notes": "\n".join([self.obj[0]["data"]["children"][0]["data"]["title"], self.obj[0]["data"]["children"][0]["data"]["selftext"]]).strip(), "File URL": self.obj[0]["data"]["children"][0]["data"]["media"]["reddit_video"]["fallback_url"], "Source": self.current_query})
+                else: self.current_catalog.append({"ID": _id, "Notes": "\n".join([self.obj[0]["data"]["children"][0]["data"]["title"], self.obj[0]["data"]["children"][0]["data"]["selftext"]]).strip(), "File URL": self.obj[0]["data"]["children"][0]["data"]["url"], "Source": self.current_query})
+            if all(type(i) == dict and "page" in i and "threads" in i for i in self.obj): self.current_catalog.extend([thread for i in self.obj for thread in i["threads"]])
+            elif not ("/api/v1" in self.current_url or self.current_url.startswith("https://www.reddit.com/r/")): self.current_catalog.extend(self.obj)
+            if "/posts.json?limit=100&page=" in self.current_url and not len(self.queries) > 1:
+                if self.next_page:
+                    self.count = (100, tab.get_child().total)
+                elif self.page == 1 and 100 > len(c):
+                    self.count = (100, len(c))
                 else:
-                    n = Extractor.response_to_object(u.replace("/posts.json", "/counts/posts.json").replace("status:any", ""), headers=headers)
-                    if n and n[1] and "counts" in n[1] and "posts" in n[1]["counts"]:
-                        count = (100, 0 if n[1]["counts"]["posts"] == None else n[1]["counts"]["posts"])
-        if "https://a.4cdn.org/" in u:
-            for i in c:
-                i.setdefault("File URL", f"https://i.4cdn.org/{u.split('https://a.4cdn.org/')[-1].split('/')[0]}/{i['tim']}{i['ext']}" if "tim" in i and "ext" in i else "")
-                i.setdefault("Source", f"https://boards.4chan.org/{u.split('https://a.4cdn.org/')[-1].split('/')[0]}/thread/{i['no'] if i['resto'] == 0 else i['resto']}")
-        if "/_/api/chan/" in u:
-            for i in c: i.setdefault("Source", f"{u.split('/_/', 1)[0]}/{u.split('board=', 1)[-1].split('&', 1)[0]}/thread/{i['thread_num']}")
-        if "/catalog.json" in u or ("/res/" in u and u.endswith(".json")):
-            base_url = u.split("/catalog.json")[0].split("/res/", 1)[0]
-            for i in c:
+                    try:
+                        n = Online.Request(self.current_url.replace("/posts.json", "/counts/posts.json").replace("status:any", ""), headers=self.current_headers)
+                        n = json(n.decode())
+                        if "counts" in n and "posts" in n["counts"]:
+                            self.count = (100, 0 if n["counts"]["posts"] == None else n["counts"]["posts"])
+                    except: pass
+        if "https://a.4cdn.org/" in self.current_url:
+            for i in self.current_catalog:
+                i.setdefault("File URL", f"https://i.4cdn.org/{self.current_url.split('https://a.4cdn.org/')[-1].split('/')[0]}/{i['tim']}{i['ext']}" if "tim" in i and "ext" in i else "")
+                i.setdefault("Source", f"https://boards.4chan.org/{self.current_url.split('https://a.4cdn.org/')[-1].split('/')[0]}/thread/{i['no'] if i['resto'] == 0 else i['resto']}")
+        if "/_/api/chan/" in self.current_url:
+            for i in self.current_catalog: i.setdefault("Source", f"{self.current_url.split('/_/', 1)[0]}/{self.current_url.split('board=', 1)[-1].split('&', 1)[0]}/thread/{i['thread_num']}")
+        if "/catalog.json" in self.current_url or ("/res/" in self.current_url and self.current_url.endswith(".json")):
+            base_url = self.current_url.split("/catalog.json")[0].split("/res/", 1)[0]
+            for i in self.current_catalog:
                 if "no" in i and "resto" in i:
                     l = [i] + (i["extra_files"] if "extra_files" in i else [])
                     for it in l: it.setdefault("File URL", f"{base_url.strip('/').rsplit('/', 1)[0]}/static/deleted.svg" if "ext" in it and it["ext"] == "deleted" else ("https://" + EMBED_REGEX(it["embed"]).group(1).strip("https:").strip("//")) if "embed" in it and "src" in it["embed"] else f"{base_url}/src/{it['tim']}{it['ext']}" if "tim" in it and "ext" in it else "")
                     i.setdefault("Source", f"{base_url}/res/{i['no'] if i['resto'] == 0 else i['resto']}.html")
-        return c, count, next_page
 
-    def cardboard(c, query, page, board):
-        q =  " ".join(tuple(i for i in query.split(" ") if not i.lower().startswith("order:"))) + getattr(Boards.list.default.get_model()[board], "URL", "")
-        sort = tuple(i for i in query.split(" ") if i.lower().startswith("order:"))
+    def cardboard(self):
+        q =  " ".join(tuple(i for i in self.current_query.split(" ") if not i.lower().startswith("order:"))) + getattr(Boards.list.default.get_model()[self.board], "URL", "")
+        sort = tuple(i for i in self.current_query.split(" ") if i.lower().startswith("order:"))
         sort = sort[0].lower().split(":")[1] if sort else "Added"
         terms = tuple(i for i in q.split(" ") if i and not i.startswith(("-board:", "board:")))
         key_terms = tuple(i for i in terms if ":" in i and len(i.split(":")) == 2)
@@ -2400,7 +2539,7 @@ class Extractor:
             key_terms = tuple([k.lstrip("-").replace("regex_", ""), Regex(v) if k.lstrip("-").startswith("regex_") else str(v), not k.startswith("-")] for k, v in tuple(i.split(":") for i in key_terms))
         except Exception as e:
             print(e)
-            return c, "end"
+            return
         for key in key_terms:
             if key[0] in PostData.default_names:
                 key[0] = PostData.prop_get_title(key[0])
@@ -2426,93 +2565,80 @@ class Extractor:
                 tags = tuple(i.lower() for i in json(p.get("Tags", "[]")))
                 for term in terms:
                     if term.startswith("-") and term.lstrip("-") in tags or not term.startswith("-") and not term in tags: break
-                else: c.append(p)
+                else: self.current_catalog.append(p)
         if "random" in sort:
             k = return_random_500
         else:
-            def k(c): return alphabetical_sort(c[next((i for i in c if i.lower().replace(" ", "_") == sort.split("_asc")[0]), "Added")])
-        c.sort(key=k, reverse=not "_asc" in sort)
-        c = c[(page - 1) * 25:]
-        return c, "end"
+            def k(p):
+                r = p.get(PostData.prop_get_title(sort.split("_asc")[0]), None)
+                return alphabetical_sort(r if r != None else p.get("Added", 0))
+        self.current_catalog.sort(key=k, reverse=not "_asc" in sort)
+        self.current_catalog = self.current_catalog[(self.page - 1) * 25:]
+        self.count = "end"
 
-    def response_to_object(uri, headers={}):
-        t, tt = "", False
-        try:
-            t = Online.Request(uri, headers)
-            try:
-                tt = t.decode("utf-8").strip()
-                if not tt:
-                    Online.Intervention(uri)
-                    return [None, None]
-                if tt.startswith(("<?xml", "<!DOCTYPE html")): return [tt, tt]
-                return [tt, json(tt)]
-            except Exception as e:
-                if tt: return [tt, tt]
-                try:
-                    t = PaintableTask.data_to_paintable(t, uri)
-                    return [t, t]
-                except Exception as e:
-                    print(uri, e)
-                    Online.Intervention(uri, t)
-                return [None, None]
-        except Exception as e:
-            print(uri, e)
-            Online.Intervention(uri, t)
-            return [None, None]
+    def url_from_url(self, force_engine=False):
+        if self.engine == "vichan":
+            if "/res/" in self.current_url:
+                self.current_url = self.current_url.rsplit(".", 1)[0] + ".json"
+            elif not "/src/" in self.current_url:
+                self.current_url = self.current_url.strip("/") + "/catalog.json"
+            return
+        if self.engine == "FoolFuuka":
+            if "/_/api/chan" in self.current_url: return
+            elif "/thread/" in self.current_url:
+                board = self.current_url.split("/thread/", 1)[0].rsplit("/", 1)[-1]
+                base = self.current_url.split(f"/{board}/", 1)[0].strip("/")
+                if "#" in self.current_url and self.current_url.rsplit("#", 1)[-1].strip("p").isdigit():
+                    self.current_url = f"{base}/_/api/chan/post/?board={board}&num={self.current_url.rsplit('#', 1)[-1].strip('p')}"
+                else:
+                    self.current_url = f"{base}/_/api/chan/thread/?board={board}&num={self.current_url.split('/thread/', 1)[-1].split('/', 1)[0]}"
+            elif force_engine:
+                self.url_from_query("", self.current_url.split("/thread", 1)[0].strip("/"))
+        if self.engine == "Danbooru" and ("/post/show/" in self.current_url or "/posts/" in self.current_url):
+            self.url_from_query("id:" + self.current_url.replace("/post/show/", "/posts/").split("?")[0].split("/posts/")[-1], "https://" + self.current_url.split("https://", 1)[-1].split("/",1)[0])
+        if self.engine == "Gelbooru" and "id=" in self.current_url:
+            self.url_from_query("id:" + self.current_url.split("id=")[-1].split("&")[0], "https://" + self.current_url.split("https://", 1)[-1].split("/",1)[0])
+        if self.engine == "Moebooru" and "/post/show/" in self.current_url:
+            self.url_from_query("id:" + self.current_url.split("?")[0].split("/post/show/")[-1].split("/")[0], "https://" + self.current_url.split("https://", 1)[-1].split("/",1)[0])
+        if self.engine in ("Danbooru", "Gelbooru", "Moebooru") and (force_engine or "?" in self.current_url and "tags=" in self.current_url):
+            self.url_from_query(GLib.Uri.parse_params(u.split("?")[-1], -1, "&", GLib.UriParamsFlags.NONE)["tags"].replace(" + ", " ") if "?" in self.current_url and "tags=" in self.current_url else "", "https://" + self.current_url.split("https://", 1)[-1].split("/",1)[0])
 
-    def url_from_url(u, e, page=1, force_engine=False):
-        if e == "vichan":
-            if "/res/" in u: return u.rsplit(".", 1)[0] + ".json"
-            elif not "/src/" in u: return u.strip("/") + "/catalog.json"
-        if e == "FoolFuuka":
-            if "/_/api/chan" in u: return u
-            elif "/thread/" in u:
-                board = u.split("/thread/", 1)[0].rsplit("/", 1)[-1]
-                base = u.split(f"/{board}/", 1)[0].strip("/")
-                if "#" in u and u.rsplit("#", 1)[-1].strip("p").isdigit(): return f"{base}/_/api/chan/post/?board={board}&num={u.rsplit('#', 1)[-1].strip('p')}"
-                else: return f"{base}/_/api/chan/thread/?board={board}&num={u.split('/thread/', 1)[-1].split('/', 1)[0]}"
-            elif force_engine: return Extractor.url_from_query("", page, e, u.split("/thread", 1)[0].strip("/"))
-        if e == "Danbooru" and ("/post/show/" in u or "/posts/" in u): return Extractor.url_from_query("id:" + u.replace("/post/show/", "/posts/").split("?")[0].split("/posts/")[-1], page, e, "https://" + u.split("https://", 1)[-1].split("/",1)[0])
-        if e == "Gelbooru" and "id=" in u: return Extractor.url_from_query("id:" + u.split("id=")[-1].split("&")[0], page, e, "https://" + u.split("https://", 1)[-1].split("/",1)[0])
-        if e == "Moebooru" and "/post/show/" in u: return Extractor.url_from_query("id:" + u.split("?")[0].split("/post/show/")[-1].split("/")[0], page, e, "https://" + u.split("https://", 1)[-1].split("/",1)[0])
-        if e in ("Danbooru", "Gelbooru", "Moebooru") and (force_engine or "?" in u and "tags=" in u): return Extractor.url_from_query(GLib.Uri.parse_params(u.split("?")[-1], -1, "&", GLib.UriParamsFlags.NONE)["tags"].replace(" + ", " ") if "?" in u and "tags=" in u else "", page, e, "https://" + u.split("https://", 1)[-1].split("/",1)[0])
-        return u
-
-    def url_from_query(query, page, e, url):
+    def url_from_query(self, query, url):
         if is_online(query): return query
-        if e == "Danbooru": return f"{url}/posts.json?limit=100&page={page}&tags={query}"
-        if e == "Gelbooru": return f"{url}/index.php?limit=100&pid={page - 1}&page=dapi&s=post&q=index&json=1&tags={query}"
-        if e == "Moebooru": return f"{url}/post.xml?limit=100&page={page}&tags={query}"
-        if e == "FoolFuuka": return f"{url.rsplit('/', 1)[0]}/_/api/chan/post/?board={url.rsplit('/', 1)[1]}&num={query.split('id:')[-1]}" if query.startswith("id:") else f"{url.rsplit('/', 1)[0]}/_/api/chan/gallery/?board={url.rsplit('/', 1)[1]}&page={page}{query.strip('$') if query.startswith('$') else ''}"
-        if e == "vichan": return f"{url}/catalog.json"
+        if self.engine == "Danbooru": return f"{url}/posts.json?limit=100&page={self.page}&tags={query}"
+        if self.engine == "Gelbooru": return f"{url}/index.php?limit=100&pid={self.page - 1}&page=dapi&s=post&q=index&json=1&tags={query}"
+        if self.engine == "Moebooru": return f"{url}/post.xml?limit=100&page={self.page}&tags={query}"
+        if self.engine == "FoolFuuka": return f"{url.rsplit('/', 1)[0]}/_/api/chan/post/?board={url.rsplit('/', 1)[1]}&num={query.split('id:')[-1]}" if query.startswith("id:") else f"{url.rsplit('/', 1)[0]}/_/api/chan/gallery/?board={url.rsplit('/', 1)[1]}&page={self.page}{query.strip('$') if query.startswith('$') else ''}"
+        if self.engine == "vichan": return f"{url}/catalog.json"
 
-    def query_to_url(query, board, page, tab, next_page):
-        response = None
-        bd = Boards.list.default.get_model()[board]
-        if query.startswith(("archive://", "file://")): return (query, query, board, page, bd.engine if bd else "Cardboard", response)
-        original_query = query
-        query = query.strip("\n").strip()
-        if is_online(query):
+    def query_to_url(self):
+        bd = Boards.list.default.get_model()[self.board]
+        if self.current_query.startswith(("archive://", "file://")):
+            self.engine = bd.engine if bd else "Cardboard"
+            return
+        original_query = self.current_query
+        self.current_query = self.current_query.strip("\n").strip()
+        if is_online(self.current_query):
             for i in Boards:
-                if i.engine == "FoolFuuka" and "4chan.org/" in query and i.url.endswith("/" + query.split("org/", 1)[-1].split("/", 1)[0]):
-                    board = i.name
-                    query = i.url + "/" + query.split("org/", 1)[-1].split("/", 1)[-1]
-                if i.url and query.startswith(i.url) or any(i.engine == a and b in query for a, b in (("4chan", f"4chan.org/{i.url}/thread"), ("MangaDex", "mangadex.org/"), ("Pinterest", "pinterest.com/"))):
-                    board = i.name
-        bd = Boards.list.default.get_model()[board] or Boards.list.default.get_model()[0]
-        e, url, u = bd.engine, bd.url, query
-        if u.startswith("https://weebcentral.com/"):
-            if "/chapters/" in u:
-                u = u.rstrip("/") + "/images"
-            if "/series/" in u and not len(u.split("/series/", 1)[-1].split("/", -1)) == 2:
-                u = u.split("/series/", 1)[0].rstrip("/") + "/series/" + u.rsplit("/series/", 1)[-1].split("/", 1)[0].strip("/") + "/full-chapter-list"
-        if query.startswith(("https://x.com/", "https://xcancel.com", "https://nitter.net/")) or e == "Nitter" and not is_online(query):
-            e = "Nitter"
+                if i.engine == "FoolFuuka" and "4chan.org/" in self.current_query and i.url.endswith("/" + self.current_query.split("org/", 1)[-1].split("/", 1)[0]):
+                    self.board = i.name
+                    self.current_query = i.url + "/" + self.current_query.split("org/", 1)[-1].split("/", 1)[-1]
+                if i.url and self.current_query.startswith(i.url) or any(i.engine == a and b in self.current_query for a, b in (("4chan", f"4chan.org/{i.url}/thread"), ("MangaDex", "mangadex.org/"), ("Pinterest", "pinterest.com/"))):
+                    self.board = i.name
+        bd = Boards.list.default.get_model()[self.board] or Boards.list.default.get_model()[0]
+        self.engine, url, self.current_url = bd.engine, bd.url, self.current_query
+        if self.current_url.startswith("https://weebcentral.com/"):
+            if "/chapters/" in self.current_url:
+                self.current_url = self.current_url.rstrip("/") + "/images"
+            if "/series/" in self.current_url and not len(self.current_url.split("/series/", 1)[-1].split("/", -1)) == 2:
+                self.current_url = self.current_url.split("/series/", 1)[0].rstrip("/") + "/series/" + self.current_url.rsplit("/series/", 1)[-1].split("/", 1)[0].strip("/") + "/full-chapter-list"
+        if self.current_query.startswith(("https://x.com/", "https://xcancel.com", "https://nitter.net/")) or self.engine == "Nitter" and not is_online(self.current_query):
+            self.engine = "Nitter"
             try:
                 global NITTER_INSTANCE
                 NITTER_INSTANCE = NITTER_INSTANCE or False
             except Exception as ex:
-                NITTER_INSTANCE = GLib.getenv("NITTER_INSTANCE").rstrip("/")
+                NITTER_INSTANCE = (GLib.getenv("NITTER_INSTANCE") or "").rstrip("/")
             if not NITTER_INSTANCE:
                 instances = [i.split("\"", 1)[0].rstrip("/") for i in Online.Request("https://xxcancel.com/").decode().rsplit("instance-list\">", 1)[-1].split("<p>", 1)[0].split("href=\"")[1:-1]]
                 for i in instances:
@@ -2523,69 +2649,69 @@ class Extractor:
                         break
                     else: NITTER_SKIP.append(i)
             if NITTER_INSTANCE:
-                start = query.split("://", 1)[-1].split("/", 1)[-1]
+                start = self.current_query.split("://", 1)[-1].split("/", 1)[-1]
                 user = start.split("/", 1)[0] if not start.startswith("search") else ""
-                if "id:" in query or "/status/" in query:
-                    u = f"{NITTER_INSTANCE}/i/status/{query.split('/status/')[-1].split('#')[0].split('id:')[-1].split(' ')[0]}?prefs=hideTweetStats=on,hideBanner=on,hidePins=on,hideReplies=on,hideCommunityNotes=on,proxyVideos=,replaceTwitter=,replaceYouTube=,replaceReddit="
+                if "id:" in self.current_query or "/status/" in self.current_query:
+                    self.current_url = f"{NITTER_INSTANCE}/i/status/{self.current_query.split('/status/')[-1].split('#')[0].split('id:')[-1].split(' ')[0]}?prefs=hideTweetStats=on,hideBanner=on,hidePins=on,hideReplies=on,hideCommunityNotes=on,proxyVideos=,replaceTwitter=,replaceYouTube=,replaceReddit="
                 elif user:
-                    u = f"{NITTER_INSTANCE}/{user}/search?f-media=on&prefs=hideTweetStats=on,hideBanner=on,hidePins=on,hideReplies=on,hideCommunityNotes=on,proxyVideos=,replaceTwitter=,replaceYouTube=,replaceReddit=&q={query.split('q=')[-1] if 'q=' in query else '' if query.startswith(('https://', 'http://')) else query}"
+                    self.current_url = f"{NITTER_INSTANCE}/{user}/search?f-media=on&prefs=hideTweetStats=on,hideBanner=on,hidePins=on,hideReplies=on,hideCommunityNotes=on,proxyVideos=,replaceTwitter=,replaceYouTube=,replaceReddit=&q={self.current_query.split('q=')[-1] if 'q=' in self.current_query else '' if self.current_query.startswith(('https://', 'http://')) else self.current_query}"
                 else:
-                    u = f"{NITTER_INSTANCE}/search?f=tweets&f-media=on&prefs=hideTweetStats=on,hideBanner=on,hidePins=on,hideReplies=on,hideCommunityNotes=on,proxyVideos=,replaceTwitter=,replaceYouTube=,replaceReddit=&q={query.split('q=')[-1] if 'q=' in query else '' if query.startswith(('https://', 'http://')) else query}"
-            else: Toast("No Nitter instance available")
-        if query.startswith("https://") and "pinterest.com/" in query or e == "Pinterest" and not is_online(query):
-            e = "Pinterest"
-            page = 1
-            if "/pin/" in query and query.endswith("/"):
-                u = f"https://www.pinterest.com/resource/RelatedPinFeedResource/get/?data={json_string({'options': {'pin': query.split('/pin/', 1)[-1].strip('/'), 'add_vase': True, 'pins_only': True, 'bookmarks': None}})}&source_url="
-            elif "/pin/" in query or "id:" in query:
-                u = f"https://www.pinterest.com/resource/PinResource/get/?data={json_string({'options': {'id': query.split('/pin/', 1)[-1].split('id:', 1)[-1], 'field_set_key': 'detailed'}})}&source_url="
-            elif query.startswith("https://") and not "?q=" in query:
-                user = query.strip("/").split(".com/", 1)[-1].rsplit("/", 1)[0].split(" ")[0]
-                q = query.strip("/").rsplit("/", 1)[-1].replace("  ", " ").strip().replace(" ", "-")
-                a, b = Extractor.response_to_object(f"https://www.pinterest.com/resource/BoardResource/get/?data={json_string({'options': {'slug': q, 'username': user, 'field_set_key': 'detailed'}})}&source_url=", headers=PINTEREST_HEADERS)
-                u = f"https://www.pinterest.com/resource/BoardFeedResource/get/?data={json_string({'options': {'board_id': b['resource_response']['data']['id'], 'field_set_key': 'react_grid_pin', 'prepend': False, 'bookmarks': None}})}&source_url="
+                    self.current_url = f"{NITTER_INSTANCE}/search?f=tweets&f-media=on&prefs=hideTweetStats=on,hideBanner=on,hidePins=on,hideReplies=on,hideCommunityNotes=on,proxyVideos=,replaceTwitter=,replaceYouTube=,replaceReddit=&q={self.current_query.split('q=')[-1] if 'q=' in self.current_query else '' if self.current_query.startswith(('https://', 'http://')) else self.current_query}"
+            else: Task.invoke(Toast, "No Nitter instance available")
+        if self.current_query.startswith("https://") and "pinterest.com/" in self.current_query or self.engine == "Pinterest" and not is_online(self.current_query):
+            self.engine = "Pinterest"
+            self.page = 1
+            if "/pin/" in self.current_query and self.current_query.endswith("/"):
+                self.current_url = f"https://www.pinterest.com/resource/RelatedPinFeedResource/get/?data={json_string({'options': {'pin': self.current_query.split('/pin/', 1)[-1].strip('/'), 'add_vase': True, 'pins_only': True, 'bookmarks': None}})}&source_url="
+            elif "/pin/" in self.current_query or "id:" in self.current_query:
+                self.current_url = f"https://www.pinterest.com/resource/PinResource/get/?data={json_string({'options': {'id': self.current_query.split('/pin/', 1)[-1].split('id:', 1)[-1], 'field_set_key': 'detailed'}})}&source_url="
+            elif self.current_query.startswith("https://") and not "?q=" in self.current_query:
+                user = self.current_query.strip("/").split(".com/", 1)[-1].rsplit("/", 1)[0].split(" ")[0]
+                q = self.current_query.strip("/").rsplit("/", 1)[-1].replace("  ", " ").strip().replace(" ", "-")
+                b = json(Online.Request(f"https://www.pinterest.com/resource/BoardResource/get/?data={json_string({'options': {'slug': q, 'username': user, 'field_set_key': 'detailed'}})}&source_url=", headers=PINTEREST_HEADERS))
+                self.current_url = f"https://www.pinterest.com/resource/BoardFeedResource/get/?data={json_string({'options': {'board_id': b['resource_response']['data']['id'], 'field_set_key': 'react_grid_pin', 'prepend': False, 'bookmarks': None}})}&source_url="
             else:
-                u = f"https://www.pinterest.com/resource/BaseSearchResource/get/?data={json_string({'options': {'query': query.split('?q=', 1)[-1].split('&')[0], 'scope': 'pins', 'rs': 'typed', 'bookmarks': None}})}&source_url="
-        if query.startswith("https://boards.4chan.org/") or e == "4chan" and not is_online(query):
-            e, url = "4chan", query.split(".org/")[-1].split("/")[0] if is_online(query) else url
-            if "/thread/" in query:
-                u = query.replace("boards.", "").replace("4chan.", "a.4cdn.").rstrip(".json").rstrip("/")
-                if not u.rsplit("/", 1)[-1].isdigit():
-                    u = u.rsplit("/", 1)[0]
-                u += ".json"
+                self.current_url = f"https://www.pinterest.com/resource/BaseSearchResource/get/?data={json_string({'options': {'query': self.current_query.split('?q=', 1)[-1].split('&')[0], 'scope': 'pins', 'rs': 'typed', 'bookmarks': None}})}&source_url="
+        if self.current_query.startswith("https://boards.4chan.org/") or self.engine == "4chan" and not is_online(self.current_query):
+            self.engine, url = "4chan", self.current_query.split(".org/")[-1].split("/")[0] if is_online(self.current_query) else url
+            if "/thread/" in self.current_query:
+                self.current_url = self.current_query.replace("boards.", "").replace("4chan.", "a.4cdn.").rstrip(".json").rstrip("/")
+                if not self.current_url.rsplit("/", 1)[-1].isdigit():
+                    self.current_url = self.current_url.rsplit("/", 1)[0]
+                self.current_url += ".json"
             else:
-                u = f"https://a.4cdn.org/{url}/catalog.json"
-        if query.replace("www.", "").startswith("https://pixiv.net") or e == "Pixiv" and not is_online(query):
-            e = "Pixiv"
-            if "p=" in query and query.split("p=", 1)[-1].split("&")[0].isdigit():
-                page = int(query.split("p=", 1)[-1].split("&")[0])
-            if "/users/" in query:
-                u = f"https://app-api.pixiv.net/v1/user/illusts?user_id={query.split('/users/')[-1]}"
-            elif "/artworks/" in query:
-                u = f"https://app-api.pixiv.net/v1/illust/detail?illust_id={query.split('/artworks/', 1)[-1]}"
+                self.current_url = f"https://a.4cdn.org/{url}/catalog.json"
+        if self.current_query.replace("www.", "").startswith("https://pixiv.net") or self.engine == "Pixiv" and not is_online(self.current_query):
+            self.engine = "Pixiv"
+            if "p=" in self.current_query and self.current_query.split("p=", 1)[-1].split("&")[0].isdigit():
+                self.page = int(self.current_query.split("p=", 1)[-1].split("&")[0])
+            if "/users/" in self.current_query:
+                self.current_url = f"https://app-api.pixiv.net/v1/user/illusts?user_id={self.current_query.split('/users/')[-1]}"
+            elif "/artworks/" in self.current_query:
+                self.current_url = f"https://app-api.pixiv.net/v1/illust/detail?illust_id={self.current_query.split('/artworks/', 1)[-1]}"
             else:
-                u = f'https://app-api.pixiv.net/v1/search/illust?word={query.split("/search?q=")[-1].split("/tags/")[-1].split("&")[0].split("/")[0]}'
-            if page > 1:
-                u += f"&offset={30 * (page - 1)}"
-            if e == bd.engine:
-                u += bd.append_to_search
-        if query.replace("www.", "").replace("api.", "").startswith("https://mangadex.org") or e == "MangaDex" and not is_online(query):
-            e = "MangaDex"
-            if "/title/" in query:
-                original_query = query = query.split("title/", 1)[0] + "title/" + query.split("title/", 1)[-1].split("/", 1)[0] + ("/" if "/" in query.split("title/", 1)[-1] else "")
-            if "api.mangadex.org" in query:
-                u = query
-            if "/chapter/" in query:
-                u = f"https://api.mangadex.org/at-home/server/{query.strip('/').split('/chapter/')[-1].rsplit('/', 1)[-1]}?forcePort443=false"
-            elif "/title/" in query and query.endswith("/"):
-                u = f"https://api.mangadex.org/manga/{query.split('/title/')[-1].strip('/').rsplit('/', 1)[-1]}/feed?limit=500&order[volume]=desc&order[chapter]=desc&offset=0"
+                self.current_url = f'https://app-api.pixiv.net/v1/search/illust?word={self.current_query.split("/search?q=")[-1].split("/tags/")[-1].split("&")[0].split("/")[0]}'
+            if self.page > 1:
+                self.current_url += f"&offset={30 * (self.page - 1)}"
+            if self.engine == bd.engine:
+                self.current_url += bd.append_to_search
+        if self.current_query.replace("www.", "").replace("api.", "").startswith("https://mangadex.org") or self.engine == "MangaDex" and not is_online(self.current_query):
+            self.engine = "MangaDex"
+            if "/title/" in self.current_query:
+                original_query = self.current_query = self.current_query.split("title/", 1)[0] + "title/" + self.current_query.split("title/", 1)[-1].split("/", 1)[0] + ("/" if "/" in self.current_query.split("title/", 1)[-1] else "")
+            if "api.mangadex.org" in self.current_query:
+                self.current_url = self.current_query
+            if "/chapter/" in self.current_query:
+                self.current_url = f"https://api.mangadex.org/at-home/server/{self.current_query.strip('/').split('/chapter/')[-1].rsplit('/', 1)[-1]}?forcePort443=false"
+            elif "/title/" in self.current_query and self.current_query.endswith("/"):
+                self.current_url = f"https://api.mangadex.org/manga/{self.current_query.split('/title/')[-1].strip('/').rsplit('/', 1)[-1]}/feed?limit=500&order[volume]=desc&order[chapter]=desc&offset=0"
             else:
-                q = query
+                q = self.current_query
                 if "id:" in q or "/title/" in q and not q.endswith("/"):
                     q = "$&ids[]=" + q.split(":")[-1].split("/title/", 1)[-1]
-                u = "https://api.mangadex.org/manga?includes[]=cover_art&limit=100&offset=" + str((page - 1) * 100 if page > 1 else 0) + ((q.strip('$') if q.startswith('$') else '&title=\'' + q + '\'') if q else '')
-            if e == bd.engine:
-                u += bd.append_to_search
+                self.current_url = "https://api.mangadex.org/manga?includes[]=cover_art&limit=100&offset=" + str((self.page - 1) * 100 if self.page > 1 else 0) + ((q.strip('$') if q.startswith('$') else '&title=\'' + q + '\'') if q else '')
+            if self.engine == bd.engine:
+                self.current_url += bd.append_to_search
             else:
                 try:
                     global MANGADEX_RATINGS
@@ -2593,119 +2719,41 @@ class Extractor:
                 except Exception as ex:
                     MANGADEX_RATINGS = False
                 if not MANGADEX_RATINGS:
-                    r = Online.Request(u + "&contentRating[]=", {"User-Agent": "Cardboard"})
-                    j = json(r.decode())
+                    r = Online.Request(self.current_url + "&contentRating[]=", headers={"User-Agent": "Cardboard"}).decode()
+                    j = json(r)
                     if "errors" in j:
                         MANGADEX_RATINGS = j["errors"][0]["detail"].rsplit("[", 1)[-1].split("]", 1)[0].replace("\"", "").split(",")
                     else:
-                        response = (r, j)
+                        self.text, self.obj = r, j
                 if MANGADEX_RATINGS:
                     for i in MANGADEX_RATINGS:
-                        u += f"&contentRating[]={i}"
-        if is_online(query):
-            if "/g/" in query and query.strip("/").split("/g/", 1)[-1].split("/")[0].isdigit():
-                u = query.split("/g/", 1)[0] + "/api/v2/galleries/" + query.strip("/").split("/g/", 1)[-1].split("/")[0]
-            if "youtu.be/" in query or "youtube.com" in query:
-                u = query.replace("youtu.be/", "youtube.com/watch?v=").replace("/shorts/", "/watch?v=")
-            if query.startswith("https://www.reddit.com/r/") and "/comments/" in query:
-                u, _id = query.split("/comments/", 1)
-                u += "/comments/" + (_id.split("/")[0] if "/" in _id else _id) + ".json"
-            if "artstation.com/artwork/" in query:
-                u = f"{query.replace('artwork', 'projects')}.json"
-            if query.startswith("https://www.zerochan.net/") and query.split("/")[-1].isdigit():
-                u = query + "?&json"
-            if "pbs.twimg.com/media/" in query:
-                if "." in query.split("/media/")[-1]:
-                    u = query.split("?", 1)[0] + "?name=orig"
-            if "catbox.moe" in u:
-                e = "Cardboard"
-            u = Extractor.url_from_url(u, e, page=page)
+                        self.current_url += f"&contentRating[]={i}"
+        if is_online(self.current_query):
+            if "/g/" in self.current_query and self.current_query.strip("/").split("/g/", 1)[-1].split("/")[0].isdigit():
+                self.current_url = self.current_query.split("/g/", 1)[0] + "/api/v2/galleries/" + self.current_query.strip("/").split("/g/", 1)[-1].split("/")[0]
+            if "youtu.be/" in self.current_query or "youtube.com" in self.current_query:
+                self.current_url = self.current_query.replace("youtu.be/", "youtube.com/watch?v=").replace("/shorts/", "/watch?v=")
+            if self.current_query.startswith("https://www.reddit.com/r/") and "/comments/" in self.current_query:
+                self.current_url, _id = self.current_query.split("/comments/", 1)
+                self.current_url += "/comments/" + (_id.split("/")[0] if "/" in _id else _id) + ".json"
+            if "artstation.com/artwork/" in self.current_query:
+                self.current_url = f"{self.current_query.replace('artwork', 'projects')}.json"
+            if self.current_query.startswith("https://www.zerochan.net/") and self.current_query.split("/")[-1].isdigit():
+                self.current_url = self.current_query + "?&json"
+            if "pbs.twimg.com/media/" in self.current_query:
+                if "." in self.current_query.split("/media/")[-1]:
+                    self.current_url = self.current_query.split("?", 1)[0] + "?name=orig"
+            if "catbox.moe" in self.current_url:
+                self.engine = "Cardboard"
+            self.url_from_url()
         else:
-            if e in ("Danbooru", "Gelbooru", "Moebooru", "FoolFuuka", "vichan"):
-                u = Extractor.url_from_query(query, page, e, url)
-            if e == bd.engine:
-                u += bd.append_to_search
-            u = u.replace("= ", "=")
-        return (u, query if e == bd.engine else original_query, board if Boards.list.default.get_model()[board] else Boards.list.default.get_model()[0].name, page, e, response)
-
-    def do_fetch(tab):
-        queries, page, board = tab.get_current_query()[:-1]
-        catalog = []
-        next_page, paintable = tab.next_page, tab.paintable
-        count = None
-        final_queries = []
-        is_str = type(queries) == str
-        queries = [i for i in queries.split(" + ") if i] if is_str else queries
-        if not queries:
-            queries = [""]
-        for query in queries:
-            if not is_str:
-                e = getattr(Boards.list.default.get_model()[board], "engine", "Cardboard")
-                continue
-            c = []
-            if next_page and isinstance(tab.get_child().count, str) and tab.get_child().count == "end":
-                final_queries.append(query)
-                page -= 1
-                continue
-            u, query, board, page, e, response = Extractor.query_to_url(query, board, page, tab, next_page)
-            if next_page:
-                if isinstance(tab.get_child().count, str):
-                    u = tab.get_child().count
-            final_queries.append(query)
-            headers = {}
-            if any(i in u for i in ("mangadex.org", ".donmai.us")): headers.update({"User-Agent": "Cardboard"})
-            if "pinterest.com" in u:
-                if not Online.get_cookie(domain="pinterest.com", name="csrftoken"): Online.add_cookie(name="csrftoken", value=urandom(16).hex(), domain=".pinterest.com")
-                headers.update(PINTEREST_HEADERS)
-            if e == "Nitter": headers.update(NITTER_HEADERS)
-            if "pixiv.net" in u:
-                auth = Pixiv.get_auth(tab)
-                if not auth:
-                    Toast("Pixiv authentication required...")
-                    continue
-                headers.update({**Pixiv.headers, "Authorization": f"Bearer {auth}"})
-            if "/api/v1" in u: headers.update({"Accept": "text/css"})
-            if response == None and u and is_online(u) and not c:
-                response = Extractor.response_to_object(u, headers=headers)
-            if "youtube.com" in u and is_online(u): c.append({"ID": u.replace("www.", "").replace("be.com/watch?v=", ".be/").split("?")[0].rsplit("/", 1)[-1], "Source": u.replace("www.", "").replace("be.com/watch?v=", ".be/").split("?")[0], "File URL": u.replace("www.", "").replace("be.com/watch?v=", ".be/").split("?")[0].replace("youtu.be", "img.youtube.com/vi").split("&", 1)[0] + "/maxresdefault.jpg"})
-            elif response:
-                if type(response[0]) == str:
-                    c, u, response, count, headers = Extractor.from_str(c, u, response, count, page, headers)
-                if isinstance(response[0], Gdk.Paintable):
-                    paintable = response[0]
-                    c.append({"File URL": u})
-                elif not type(response[1]) == None:
-                    c, count, next_page = Extractor.from_json(c, u, response[1], queries, query, count, page, next_page, headers)
-            elif u.startswith(("archive://", "file://", "http://", "https://")) and not c:
-                if u.startswith("file://"):
-                    root = uri_decode(uri_relative_encode(u))
-                    if exists(root):
-                        if is_dir(root):
-                            for r, d, f in walk(root): c.extend([{"File URL": Path(r.split(App.default.data_folder.get_path(), 1)[-1], i).lstrip("/") if r.startswith(App.default.data_folder.get_path()) else Path(r, i)} for i in sorted(f, key=alphabetical_sort) if Gio.content_type_guess(i)[0].startswith(("video", "audio", "image"))])
-                    else: Task.invoke(Toast, f"{root} doesn't exist!")
-                if not c: c.append({"File URL": u})
-            elif e == "Cardboard":
-                c, count = Extractor.cardboard(c, query, page, board)
-            if "/_/api/chan/" in u:
-                count = u.split("page=", 1)[0] + f"page={page+1}" + (("&" + u.split("page=", 1)[-1].split("&", 1)[-1]) if "&" in u.split("page=", 1)[-1] else "")
-            if isinstance(c, dict):
-                c = [c]
-            if query and not query.startswith(("http://", "archive://", "file://", "https://")) and not is_thread(query, e):
-                for i in [i for i in c]:
-                    co = Post.get_property(i, "comment")
-                    if co and not query.lower() in co.lower(): c.remove(i)
-            for i in c:
-                if "File URL" in i and "files.catbox.moe" in i["File URL"]: i.setdefault("ID", u.split(".moe/", 1)[-1].strip("/"))
-            catalog.extend(c)
-        if count == None:
-            count = (len(catalog), len(catalog))
-        if is_str and len(queries) > 1:
-            def do_sort(i):
-                _id = Post.get_property(i, "ID")
-                return _id if _id else 0
-            catalog.sort(key=do_sort, reverse=True)
-        tab.set_current_query([" + ".join([i for i in final_queries if i]) if is_str else queries, page, board, catalog])
-        Task.invoke(tab.content, tab.get_current_query(), e, count, paintable, next_page)
+            if self.engine in ("Danbooru", "Gelbooru", "Moebooru", "FoolFuuka", "vichan"):
+                self.current_url = self.url_from_query(self.current_query, url)
+            if self.engine == bd.engine:
+                self.current_url += bd.append_to_search
+            self.current_url = self.current_url.replace("= ", "=")
+        self.current_query = self.current_query if self.engine == bd.engine else original_query
+        self.board = self.board if Boards.list.default.get_model()[self.board] else Boards.list.default.get_model()[0].name
 
 def is_chapter(u): return "mangadex.org/" in u and "/chapter/" in u or "/g/" in u and u.split("/g/", 1)[-1].split("/")[0].isdigit()
 
@@ -2781,6 +2829,8 @@ def reopen_tab(*_):
 
 def mangadex_volume_sort(i): return alphabetical_sort(i.get("attributes", {}).get("volume", 0))
 
+def id_sort(i): return Post.get_property(i, "ID") or 0
+
 ITEM_REGEX = Regex(r"<item>\s*<title>(?P<Title>.*?)</title>\s*<link>(?P<URL>.*?)</link>", DOTALL)
 POST_REGEX = Regex(r'<post\b([^>]*)>(?:.*?</post>)?')
 ATTR_REGEX = Regex(r'(\w[\w:-]*)(?:\s*=\s*(?:"([^"]*)"|\'([^\']*)\'|([^\s"\'/>]+)))?')
@@ -2844,10 +2894,26 @@ search {
 search placeholder { opacity: var(--dim-opacity); }
 search:focus-within { outline-color: color-mix(in srgb, var(--accent-color) 50%, transparent); outline-width: 2px; outline-offset: -2px; }
 search button { outline: none; font-weight: normal; }
+
+@keyframes loading-pulse {
+  0%, 100% { outline-color: var(--accent-color); }
+  50%      { outline-color: var(--accent-fg-color); }
+}
+
+.searching {
+   outline: 2px solid transparent;
+   outline-offset: -2px;
+   animation-name: loading-pulse;
+   animation-duration: 2s;
+   animation-timing-function: ease-in-out;
+   animation-iteration-count: infinite;
+}
+
 .boards listview { margin: 0px; padding: 0px; }
 .boards listview row { margin: 0px; padding: 0px; }
 .boards listview row label { padding: 0px 8px; border-radius: 9px; }
 .boards > contents > box { border-spacing: 10px; }
+.boards scrolledwindow scrollbar range trough slider { min-height: 18px; }
 
 :drop(active) label.highlight { box-shadow: 0 0 0 1px var(--accent-bg-color) inset; }
 
