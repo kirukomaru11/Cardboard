@@ -1192,7 +1192,9 @@ class Post(PostData):
             else: self.set_child(self.media)
             paintables = get_paintables() + ([paintable] if paintable else [])
             paintable = next((i for i in paintables if i.uri == self.uri), False)
-            if paintable: Task.invoke(self.__class__.finish_func, paintable, self.media)
+            if paintable:
+                paintable.set_volume(0.8 if isinstance(parent, Tab) else 0.0)
+                Task.invoke(self.__class__.finish_func, paintable, self.media)
             else:
                 self.task = self.start_task(self.media, self.uri, media_stream_args={"volume": 0.8 if isinstance(parent, Tab) else 0.0})
         else:
@@ -1376,8 +1378,12 @@ class Post(PostData):
             p.uri = mediastream.uri
             Task.invoke(p.automatic_tags)
             Task.invoke(p.set_styles)
+            if isinstance(w, Media) and isinstance(p.get_parent(), Tab) and mediastream.duration: Task.invoke(p.controls_focus)
         m = w.get_ancestor(Masonry)
         if m: Task.invoke(m.check_layout)
+
+    def controls_focus(self):
+        if self.media and self.media.controls and isinstance(self.get_parent(), Tab): self.media.controls.playback_button.grab_focus()
 
     def set_size(self):
         if self.get_root() and (self.get_ancestor(Reply) or self.get_ancestor(Adw.WrapBox)):
