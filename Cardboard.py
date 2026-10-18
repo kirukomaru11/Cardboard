@@ -2490,9 +2490,14 @@ class Extractor(GObject.Object):
                     prefix = (post.get("service", "") + "-" + str(post.get("id", 0))).strip("-")
                     notes = ("\n".join([post.get("title", "\n"), post.get("content", "\n")])).strip("\n")
                     source = self.current_url.replace("/api/v1", "").rsplit("/post", 1)[0] + "/post/" + str(post.get("id", 0))
-                    for n, i in enumerate(files):
+                    n = -1
+                    for i in files:
+                        n += 1
                         file_url = f'{i["server"] if "server" in i else base}/data{i["path"]}'
                         self.current_catalog.append({"ID": prefix + ("" if n == 0 else f"-{n + 1}"), "File URL": file_url if post.get("has_full", True) else PostData.get_preview_url(file_url), "Tags": tags, "Notes": notes, "Source": source, "Created At": created_at})
+                    if post.get("embed", False):
+                        n += 1
+                        self.current_catalog.append({"ID": prefix + ("" if n == 0 else f"-{n + 1}"), "File URL": post["embed"]["url"], "Tags": tags, "Notes": ("\n".join([post["embed"].get("subject", "\n"), post["embed"].get("description", "\n")])).strip(), "Source": source, "Created At": created_at})
                 self.count = "end" if 50 > len(self.obj) else (self.current_url.split("?o=", 1)[0] + "?o=" + str(self.page * 50))
             if self.current_url.startswith("https://www.reddit.com/r/") and "/comments/" in self.current_url:
                 _id = self.current_url.rsplit(".", 1)[0].rsplit("/", 1)[-1]
