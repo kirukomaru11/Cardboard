@@ -2074,10 +2074,10 @@ class Search(Gtk.Box):
 class Pixiv:
     headers = {"App-OS": "ios", "App-OS-Version": "16.7.2", "App-Version": "7.19.1", "User-Agent": "PixivIOSApp/7.19.1 (iOS 16.7.2; iPhone12,8)", "Referer": "https://app-api.pixiv.net/"}
     @staticmethod
-    def monitor_code(s, a, b):
+    def monitor_code(s, a, b, w):
         if "code=" in b.get_uri():
             Online.add_cookie(name="code", value=b.get_uri().split("code=")[-1].split("&")[0], domain="pixiv.net", expires=GLib.DateTime.new_now_utc().add_seconds(30))
-            Task.invoke(Pixiv.get_auth, s.get_root().tab, s.get_root())
+            Task.invoke(Pixiv.get_auth, w.tab, w=w)
 
     @staticmethod
     def get_auth(tab, w=None):
@@ -2105,7 +2105,7 @@ class Pixiv:
 
     @staticmethod
     def setup(w, d):
-        w.view.connect("resource-load-started", Pixiv.monitor_code)
+        w.view.connect("resource-load-started", Pixiv.monitor_code, w)
         w.tab, w.code_verifier, w.code_challenge = d
 
 class Extractor(GObject.Object):
