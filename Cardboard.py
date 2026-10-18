@@ -1763,7 +1763,7 @@ class Chapters(Gtk.Overlay):
         l.connect("activate", self.__class__.activate)
         l.set_factory(Chapter.factory)
         self.bind_property("model", l.get_model(), "model", DEFAULT_BIND)
-        self.model = List(Chapter, False, chapters if chapters else [])
+        self.model = List(Chapter, list=chapters if chapters else [])
 
     @staticmethod
     def load_more(sw, p=3):
