@@ -1783,7 +1783,7 @@ class Chapters(Gtk.Overlay):
 class Board(ListObject):
     __gtype_name__ = "Board"
 
-    engines = List(Gtk.StringObject, "string", ("Cardboard", "Danbooru", "Gelbooru", "Moebooru", "MangaDex", "4chan", "FoolFuuka", "vichan", "Pixiv", "Nitter", "Pinterest"))
+    engines = List(Gtk.StringObject, unique="string", list=("Cardboard", "Danbooru", "Gelbooru", "Moebooru", "MangaDex", "4chan", "FoolFuuka", "vichan", "Pixiv", "Nitter", "Pinterest"), static=True)
 
     id = GObject.Property(type=int, nick="ID", default=0)
 
@@ -1817,6 +1817,7 @@ class Board(ListObject):
                             i.board = self.name
                     t.update_title()
             Tab.idle_save_all()
+            Task.invoke(Boards.list.default.get_model().do_dict)
 
     engine = GObject.Property(type=str, default="Cardboard")
     url = GObject.Property(type=str)
@@ -1870,7 +1871,7 @@ class Boards(Gtk.Popover, metaclass=BoardsMeta):
     __gtype_name__ = "Boards"
 
     model = GObject.Property(type=Gtk.SingleSelection)
-    list = GObject.Property(type=Gtk.SortListModel, default=Gtk.SortListModel(sorter=Gtk.NumericSorter(expression=Gtk.PropertyExpression.new(Board, None, "id")), model=List(Board, "name")))
+    list = GObject.Property(type=Gtk.SortListModel, default=Gtk.SortListModel(sorter=Gtk.NumericSorter(expression=Gtk.PropertyExpression.new(Board, None, "id")), model=List(Board, unique="name", static=True)))
 
     def __init__(self):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
