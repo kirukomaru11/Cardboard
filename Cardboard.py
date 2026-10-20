@@ -12,6 +12,7 @@ from gi.repository.Soup import date_time_new_from_http_string
 from os import urandom
 from os.path import commonprefix
 from re import compile as Regex, DOTALL
+from html import unescape as html_unescape
 from html.parser import HTMLParser
 
 from sqlite3 import register_adapter
@@ -394,7 +395,7 @@ class Tab(Adw.Bin):
         super().__init__(css_name=self.__gtype_name__.lower(), focusable=True)
         v = view or Window.current.stack.get_visible_child()
         view = view or Window.current.stack.get_first_child()
-        current_tab = v.get_selected_page().get_child() if v.get_selected_page() else False
+        current_tab = v.get_selected_page().get_child() if v and v.get_selected_page() else False
         self.tab = view.add_page(self, current_tab.tab if current_tab else None) if view.get_mapped() else view.append(self)
         q = [query, page, board, ()]
         q2 = current_tab.get_current_query() if current_tab and current_tab.history else ["", 1, "Favorites", ()]
@@ -2354,6 +2355,33 @@ class Extractor(GObject.Object):
                 for i in self.current_catalog:
                     i.setdefault("Tags", [])
                     i["Tags"].extend([it.replace(" ", "_").strip("_") for it in get_attribute(head.split("keywords", 1)[-1], "content").split(",")])
+            if "<h5>Options</h5>" in self.text:
+                t = self.text.split("<h5>Options</h5>", 1)[-1].split("Original image", 1)[0].rsplit("href=\"", 1)[-1].split("\"", 1)[0]
+                if is_online(t):
+                    p = {"File URL": t, "Source": self.current_query, "Tags": []}
+                    if "<ul id=\"tag-sidebar\">" in self.text:
+                        for i in self.text.split("<ul id=\"tag-sidebar\">", 1)[-1].split("post&amp;s=list&amp;tags=")[1:]:
+                            p["Tags"].append(html_unescape(GLib.Uri.unescape_string(i.split("\"", 1)[0])))
+                            if "</li></ul>" in i: break
+                    if "<h5>Statistics</h5>" in self.text:
+                        stats = self.text.split("<h5>Statistics</h5>", 1)[-1]
+                        if "Id: " in stats:
+                            p["ID"] = self.current_query.split("://", 1)[-1].split("/", 1)[0] + "_" + stats.split("Id: ", 1)[-1].split("<", 1)[0]
+                        if "Source: " in stats:
+                            s = stats.split("Source: ", 1)[-1]
+                            if s.startswith("<a href=\""):
+                                p["Source"] = html_unescape(s.split("href=\"", 1)[-1].split("\"", 1)[0])
+                            else:
+                                p["Source"] = html_unescape(s.split("</li>", 1)[0])
+                        if "Rating: " in stats: p["Tags"].append(stats.split("Rating: ", 1)[-1][:1].lower())
+                        try:
+                            date, time = stats.split("Posted: ", 1)[-1].split("<", 1)[0].split(" ")
+                            args = date.split("-") + time.split(":")
+                            if all(i.isdigit() for i in args):
+                                args = [int(i) for i in args]
+                                p["Created At"] = GLib.DateTime.new(GLib.TimeZone.new_local(), *args).to_utc().to_unix()
+                        except: pass
+                    self.current_catalog.append(p)
 
     def from_json(self):
         if type(self.obj) == dict:
@@ -2613,7 +2641,7 @@ class Extractor(GObject.Object):
         if self.engine == "Moebooru" and "/post/show/" in self.current_url:
             self.url_from_query("id:" + self.current_url.split("?")[0].split("/post/show/")[-1].split("/")[0], "https://" + self.current_url.split("https://", 1)[-1].split("/",1)[0])
         if self.engine in ("Danbooru", "Gelbooru", "Moebooru") and (force_engine or "?" in self.current_url and "tags=" in self.current_url):
-            self.url_from_query(GLib.Uri.parse_params(u.split("?")[-1], -1, "&", GLib.UriParamsFlags.NONE)["tags"].replace(" + ", " ") if "?" in self.current_url and "tags=" in self.current_url else "", "https://" + self.current_url.split("https://", 1)[-1].split("/",1)[0])
+            self.url_from_query(GLib.Uri.parse_params(self.current_url.split("?")[-1], -1, "&", GLib.UriParamsFlags.NONE)["tags"].replace(" + ", " ") if "?" in self.current_url and "tags=" in self.current_url else "", "https://" + self.current_url.split("https://", 1)[-1].split("/",1)[0])
 
     def url_from_query(self, query, url):
         if is_online(query): return query
