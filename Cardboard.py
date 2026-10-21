@@ -2405,8 +2405,8 @@ class Extractor(GObject.Object):
                     if "images" in i:
                         tags = []
                         notes = i["seo_title"] if "seo_title" in i else ""
-                        if "pin_join" in i:
-                            if "canonical_pin" in i["pin_join"]:
+                        if i.get("pin_join", False):
+                            if i["pin_join"].get("canonical_pin", False):
                                 i["id"] = i["pin_join"]["canonical_pin"]["id"]
                             for it in i["pin_join"]["visual_annotation"]: tags.append(it.replace(" ", "-").lower())
                         if "board" in i: tags.extend([i["board"]["name"].replace(" ", "-").lower(), f"https://pinterest.com{i['board']['url'].lower()}"])
@@ -2544,7 +2544,7 @@ class Extractor(GObject.Object):
             elif not ("/api/v1" in self.current_url or self.current_url.startswith("https://www.reddit.com/r/")): self.current_catalog.extend(self.obj)
             if "/posts.json?limit=100&page=" in self.current_url and not len(self.queries) > 1:
                 if self.next_page:
-                    self.count = (100, tab.get_child().total)
+                    self.count = (100, self.tab.get_child().total)
                 elif self.page == 1 and 100 > len(self.current_catalog):
                     self.count = (100, len(self.current_catalog))
                 else:
