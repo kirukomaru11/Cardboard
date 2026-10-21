@@ -2039,12 +2039,13 @@ class Search(Gtk.Box):
         if isinstance(q, str) and q:
             try:
                 q = Online.Request(f"https://danbooru.donmai.us/autocomplete.json?search[query]={q}&search[type]=tag_query&limit=15", headers={"User-Agent": "Cardboard"})
-                q = json(q.decode())
+                q = json(q.decode()) if q else []
             except Exception as e:
                 Task.invoke(Toast, e)
+                q = []
         else:
             q = []
-        l = [Suggestion(label=f"{GLib.markup_escape_text(i['antecedent'])} → <b>{GLib.markup_escape_text(i['label'])}</b>" if "antecedent" in i else GLib.markup_escape_text(i["label"]), value=i["value"]) for i in q]
+        l = [Suggestion(label=f"{GLib.markup_escape_text(i['antecedent'])} → <b>{GLib.markup_escape_text(i['label'])}</b>" if "antecedent" in i else GLib.markup_escape_text(i["label"]), value=i["value"]) for i in (q or [])]
         Task.invoke(self.remove_css_class, "searching")
         Task.invoke(self.autocomplete.model.replace, l)
         Task.invoke(self.autocomplete.listview.get_model().unselect_all)
