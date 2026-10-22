@@ -12,5 +12,5 @@ jobs:
         - uses: actions/checkout@v7
         - uses: flatpak/flatpak-github-actions/flatpak-builder@v6
           with:
-              bundle: Cardboard.flatpak
-              manifest-path: io.github.kirukomaru11.Cardboard.json
+              bundle: ${{ github.event.repository.name }}.flatpak
+              manifest-path: io.github.${{ github.repository_owner }}.${{ github.event.repository.name }}.json
