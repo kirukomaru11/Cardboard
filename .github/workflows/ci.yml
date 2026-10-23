@@ -37,15 +37,14 @@ jobs:
               install: >
                   mingw-w64-ucrt-x86_64-libadwaita
                   mingw-w64-ucrt-x86_64-python-gobject
+                  mingw-w64-ucrt-x86_64-gobject-introspection
                   mingw-w64-ucrt-x86_64-pyinstaller
-
         - run: |
               cd ${{ github.event.repository.name }}
               shopt -s dotglob
               for f in ../utils/*; do
                   cp -a "$f" .
               done
-              cd ${{ github.event.repository.name }}
               mkdir -p assets
               find . -type f -iname "*.svg" -exec cp -a {} assets/ \;
               find ../utils -type f -iname "*.svg" -exec cp -a {} assets/ \;
