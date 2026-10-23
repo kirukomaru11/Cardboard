@@ -34,7 +34,7 @@ jobs:
           with:
               msystem: UCRT64
               update: true
-              install: mingw-w64-ucrt-x86_64-libadwaita mingw-w64-ucrt-x86_64-libsoup3 mingw-w64-ucrt-x86_64-libavif mingw-w64-ucrt-x86_64-libjxl mingw-w64-ucrt-x86_64-webp-pixbuf-loader mingw-w64-ucrt-x86_64-glycin mingw-w64-ucrt-x86_64-gst-plugins-rs mingw-w64-ucrt-x86_64-gst-plugins-base mingw-w64-ucrt-x86_64-gst-plugins-good mingw-w64-ucrt-x86_64-gst-plugins-bad mingw-w64-ucrt-x86_64-gst-plugins-ugly mingw-w64-ucrt-x86_64-gst-plugin-gtk mingw-w64-ucrt-x86_64-python-gobject mingw-w64-ucrt-x86_64-gobject-introspection mingw-w64-ucrt-x86_64-pyinstaller mingw-w64-ucrt-x86_64-imagemagick
+              install: mingw-w64-ucrt-x86_64-libadwaita mingw-w64-ucrt-x86_64-libsoup3 mingw-w64-ucrt-x86_64-libavif mingw-w64-ucrt-x86_64-libjxl mingw-w64-ucrt-x86_64-webp-pixbuf-loader mingw-w64-ucrt-x86_64-glycin mingw-w64-ucrt-x86_64-gst-plugins-rs mingw-w64-ucrt-x86_64-gst-plugins-base mingw-w64-ucrt-x86_64-gst-plugins-good mingw-w64-ucrt-x86_64-gst-plugins-bad mingw-w64-ucrt-x86_64-gst-plugins-ugly mingw-w64-ucrt-x86_64-python-gobject mingw-w64-ucrt-x86_64-gobject-introspection mingw-w64-ucrt-x86_64-pyinstaller mingw-w64-ucrt-x86_64-imagemagick
         - run: |
               cd ${{ github.event.repository.name }}
               shopt -s dotglob
@@ -45,8 +45,8 @@ jobs:
               find . -type f -iname "*.svg" -exec cp -a {} assets/ \;
               find ../utils -type f -iname "*.svg" -exec cp -a {} assets/ \;
               magick -background none io.github.${{ github.repository_owner }}.${{ github.event.repository.name }}.svg icon.ico
-              export GTK_PREFIX="$(cygpath -w "$MSYSTEM_PREFIX")"
-              python -m PyInstaller --noconfirm --clean --onefile --windowed --name ${{ github.event.repository.name }} --icon icon.ico --collect-submodules gi --add-data "assets;assets" --add-binary "$MSYSTEM_PREFIX/lib/gstreamer-1.0/*.dll;lib/gstreamer-1.0" --add-data "$GTK_PREFIX/lib/girepository-1.0;lib/girepository-1.0" ${{ github.event.repository.name }}.py
+              export PREFIX="$(cygpath -w "$MSYSTEM_PREFIX")"
+              python -m PyInstaller --noconfirm --clean --onefile --windowed --name ${{ github.event.repository.name }} --icon icon.ico --collect-submodules gi --add-data "assets;assets" --add-binary "$PREFIX/lib/gstreamer-1.0/*.dll;lib/gstreamer-1.0" --add-data "$PREFIX/lib/girepository-1.0;lib/girepository-1.0" ${{ github.event.repository.name }}.py
 
         - uses: actions/upload-artifact@v7
           with:
