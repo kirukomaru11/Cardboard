@@ -2230,7 +2230,7 @@ class Extractor(GObject.Object):
                     co = Post.get_property(i, "comment")
                     if co and not self.current_query.lower() in co.lower(): self.current_catalog.remove(i)
             for i in self.current_catalog:
-                if "File URL" in i and "files.catbox.moe" in i["File URL"]: i.setdefault("ID", self.current_url.split(".moe/", 1)[-1].strip("/"))
+                if "File URL" in i and "files.catbox.moe" in i["File URL"]: i.setdefault("ID", i["File URL"].split(".moe/", 1)[-1].strip("/"))
             self.catalog.extend(self.current_catalog)
         if self.count == None:
             self.count = (len(self.catalog), len(self.catalog))
@@ -2530,7 +2530,7 @@ class Extractor(GObject.Object):
                     for i in files:
                         n += 1
                         file_url = f'{i["server"] if "server" in i else base}/data{i["path"]}'
-                        self.current_catalog.append({"ID": prefix + ("" if n == 0 else f"-{n + 1}"), "File URL": file_url if post.get("has_full", True) else PostData.get_preview_url(file_url), "Tags": tags, "Notes": notes, "Source": source, "Created At": created_at})
+                        self.current_catalog.append({"ID": prefix + ("" if n == 0 else f"-{n + 1}"), "File URL": file_url if post.get("has_full", True) else (PostData.get_preview_url(file_url) or ""), "Tags": tags, "Notes": notes, "Source": source, "Created At": created_at})
                     if post.get("embed", False):
                         n += 1
                         self.current_catalog.append({"ID": prefix + ("" if n == 0 else f"-{n + 1}"), "File URL": post["embed"]["url"], "Tags": tags, "Notes": ("\n".join([post["embed"].get("subject", "\n"), post["embed"].get("description", "\n")])).strip(), "Source": source, "Created At": created_at})
