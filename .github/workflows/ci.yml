@@ -46,7 +46,7 @@ jobs:
               find ../utils -type f -iname "*.svg" -exec cp -a {} assets/ \;
               magick -background none io.github.${{ github.repository_owner }}.${{ github.event.repository.name }}.svg icon.ico
               export GTK_PREFIX="$(cygpath -w "$MSYSTEM_PREFIX")"
-              python -m PyInstaller --noconfirm --clean --onefile --windowed --name ${{ github.event.repository.name }} --icon icon.ico --collect-submodules gi --add-data "assets;assets" --add-data "$GTK_PREFIX/lib/girepository-1.0;lib/girepository-1.0" ${{ github.event.repository.name }}.py
+              python -m PyInstaller --noconfirm --clean --onefile --windowed --name ${{ github.event.repository.name }} --icon icon.ico --collect-submodules gi --add-data "assets;assets" --add-binary "$MSYSTEM_PREFIX/lib/gstreamer-1.0/*.dll;lib/gstreamer-1.0" --add-data "$GTK_PREFIX/lib/girepository-1.0;lib/girepository-1.0" ${{ github.event.repository.name }}.py
 
         - uses: actions/upload-artifact@v7
           with:
