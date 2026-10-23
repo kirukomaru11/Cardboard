@@ -46,7 +46,7 @@ jobs:
               find ../utils -type f -iname "*.svg" -exec cp -a {} assets/ \;
               magick -background none io.github.${{ github.repository_owner }}.${{ github.event.repository.name }}.svg -define icon:auto-resize=256,128,64,48,32,16 icon.ico
               export PREFIX="$(cygpath -w "$MSYSTEM_PREFIX")"
-              python -m PyInstaller -y -F -w -i icon.ico --hidden-import gi --collect-submodules gi --add-data "assets:assets" --add-data "$PREFIX/lib/girepository-1.0:gi_typelibs" --add-data "$PREFIX/lib/gstreamer-1.0:gst_plugins" --add-data "$PREFIX/share/fonts:share/fonts" --add-data "$PREFIX/share/icons:share/icons" ${{ github.event.repository.name }}.py
+              python -m PyInstaller -y -F -w -i icon.ico --hidden-import gi --collect-submodules gi --add-data "assets:assets" --add-binary "$PREFIX/bin/gdbus.exe:." --add-data "$PREFIX/lib/girepository-1.0:gi_typelibs" --add-data "$PREFIX/lib/gstreamer-1.0:gst_plugins" --add-data "$PREFIX/share/fonts:share/fonts" --add-data "$PREFIX/share/icons:share/icons" --add-data "$PREFIX/share/glib-2.0:share/glib-2.0" --add-data "$PREFIX/share/gtk-4.0:share/gtk-4.0" ${{ github.event.repository.name }}.py
 
         - uses: actions/upload-artifact@v7
           with:
