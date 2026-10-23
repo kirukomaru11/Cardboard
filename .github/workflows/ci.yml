@@ -58,7 +58,7 @@ jobs:
               python -m PyInstaller \
                   --noconfirm \
                   --clean \
-                  --onedir \
+                  --onefile \
                   --windowed \
                   --name ${{ github.event.repository.name }} \
                   --hidden-import gi \
@@ -68,3 +68,8 @@ jobs:
                   --add-data "$GTK_PREFIX/share/gtk-4.0;share/gtk-4.0" \
                   --add-data "$GTK_PREFIX/share/icons;share/icons" \
                   ${{ github.event.repository.name }}.py
+
+        - uses: actions/upload-artifact@v7
+          with:
+              path: |
+                  ${{ github.event.repository.name }}/dist/${{ github.event.repository.name }}.exe
