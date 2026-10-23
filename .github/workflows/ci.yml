@@ -9,8 +9,61 @@ jobs:
             image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-51
             options: --privileged
         steps:
-        - uses: actions/checkout@v7
+        - uses: actions/checkout@v4
         - uses: flatpak/flatpak-github-actions/flatpak-builder@v6
           with:
               bundle: ${{ github.event.repository.name }}.flatpak
               manifest-path: io.github.${{ github.repository_owner }}.${{ github.event.repository.name }}.json
+
+    windows:
+        runs-on: windows-latest
+        defaults:
+            run:
+                shell: msys2 {0}
+        steps:
+        - uses: actions/checkout@v4
+          with:
+              path: ${{ github.event.repository.name }}
+
+        - uses: actions/checkout@v4
+          with:
+              repository: ${{ github.repository_owner }}/Utils
+              path: utils
+
+        - uses: msys2/setup-msys2@v2
+          with:
+              msystem: MINGW64
+              update: true
+              install: >
+                  mingw-w64-x86_64-libadwaita
+                  mingw-w64-x86_64-python-gobject
+                  mingw-w64-x86_64-python-pyinstaller
+
+        - run: |
+              cd ${{ github.event.repository.name }}
+              shopt -s dotglob
+              for f in ../utils/*; do
+                  cp -a "$f" .
+              done
+
+        - run: |
+              cd ${{ github.event.repository.name }}
+              mkdir -p assets
+              find . -type f -iname "*.svg" -exec cp -a {} assets/ \;
+              find ../utils -type f -iname "*.svg" -exec cp -a {} assets/ \;
+
+        - run: |
+              cd ${{ github.event.repository.name }}
+              python -m PyInstaller \
+                  --noconfirm \
+                  --clean \
+                  --onedir \
+                  --windowed \
+                  --name ${{ github.event.repository.name }} \
+                  --hidden-import gi \
+                  --collect-submodules gi \
+                  --add-data "assets;assets" \
+                  --add-data "/mingw64/share/glib-2.0;share/glib-2.0" \
+                  --add-data "/mingw64/share/gtk-4.0;share/gtk-4.0" \
+                  --add-data "/mingw64/share/icons;share/icons" \
+                  ${{ github.event.repository.name }}.py
