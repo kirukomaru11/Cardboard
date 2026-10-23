@@ -45,15 +45,10 @@ jobs:
               for f in ../utils/*; do
                   cp -a "$f" .
               done
-
-        - run: |
               cd ${{ github.event.repository.name }}
               mkdir -p assets
               find . -type f -iname "*.svg" -exec cp -a {} assets/ \;
               find ../utils -type f -iname "*.svg" -exec cp -a {} assets/ \;
-
-        - run: |
-              cd ${{ github.event.repository.name }}
               export GTK_PREFIX="$(cygpath -w "$MSYSTEM_PREFIX")"
               python -m PyInstaller \
                   --noconfirm \
@@ -67,9 +62,11 @@ jobs:
                   --add-data "$GTK_PREFIX/share/glib-2.0;share/glib-2.0" \
                   --add-data "$GTK_PREFIX/share/gtk-4.0;share/gtk-4.0" \
                   --add-data "$GTK_PREFIX/share/icons;share/icons" \
+                  --add-data "$GTK_PREFIX/lib/girepository-1.0;lib/girepository-1.0" \
                   ${{ github.event.repository.name }}.py
 
         - uses: actions/upload-artifact@v7
           with:
+              name: ${{ github.event.repository.name }}.exe
               path: |
                   ${{ github.event.repository.name }}/dist/${{ github.event.repository.name }}.exe
