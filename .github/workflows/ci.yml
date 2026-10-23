@@ -54,6 +54,7 @@ jobs:
 
         - run: |
               cd ${{ github.event.repository.name }}
+              export GTK_PREFIX="$(cygpath -w "$MSYSTEM_PREFIX")"
               python -m PyInstaller \
                   --noconfirm \
                   --clean \
@@ -63,7 +64,7 @@ jobs:
                   --hidden-import gi \
                   --collect-submodules gi \
                   --add-data "assets;assets" \
-                  --add-data "/ucrt64/share/glib-2.0;share/glib-2.0" \
-                  --add-data "/ucrt64/share/gtk-4.0;share/gtk-4.0" \
-                  --add-data "/ucrt64/share/icons;share/icons" \
+                  --add-data "$GTK_PREFIX/share/glib-2.0;share/glib-2.0" \
+                  --add-data "$GTK_PREFIX/share/gtk-4.0;share/gtk-4.0" \
+                  --add-data "$GTK_PREFIX/share/icons;share/icons" \
                   ${{ github.event.repository.name }}.py
