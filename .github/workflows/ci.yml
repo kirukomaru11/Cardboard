@@ -44,6 +44,7 @@ jobs:
                   mingw-w64-ucrt-x86_64-python-gobject
                   mingw-w64-ucrt-x86_64-gobject-introspection
                   mingw-w64-ucrt-x86_64-pyinstaller
+                  mingw-w64-ucrt-x86_64-python-pillow
         - run: |
               cd ${{ github.event.repository.name }}
               shopt -s dotglob
