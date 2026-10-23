@@ -60,6 +60,7 @@ jobs:
                   --onefile \
                   --windowed \
                   --name ${{ github.event.repository.name }} \
+                  --icon assets/io.github.${{ github.repository_owner }}.${{ github.event.repository.name }}.svg \
                   --hidden-import gi \
                   --collect-submodules gi \
                   --add-data "assets;assets" \
