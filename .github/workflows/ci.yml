@@ -9,7 +9,7 @@ jobs:
             image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-51
             options: --privileged
         steps:
-        - uses: actions/checkout@v4
+        - uses: actions/checkout@v7
         - uses: flatpak/flatpak-github-actions/flatpak-builder@v6
           with:
               bundle: ${{ github.event.repository.name }}.flatpak
@@ -21,11 +21,11 @@ jobs:
             run:
                 shell: msys2 {0}
         steps:
-        - uses: actions/checkout@v4
+        - uses: actions/checkout@v7
           with:
               path: ${{ github.event.repository.name }}
 
-        - uses: actions/checkout@v4
+        - uses: actions/checkout@v7
           with:
               repository: ${{ github.repository_owner }}/Utils
               path: utils
@@ -35,9 +35,9 @@ jobs:
               msystem: MINGW64
               update: true
               install: >
-                  mingw-w64-x86_64-libadwaita
-                  mingw-w64-x86_64-python-gobject
-                  mingw-w64-x86_64-python-pyinstaller
+                  mingw-w64-ucrt-x86_64-libadwaita
+                  mingw-w64-ucrt-x86_64-python-gobject
+                  mingw-w64-ucrt-x86_64-python-pyinstaller
 
         - run: |
               cd ${{ github.event.repository.name }}
