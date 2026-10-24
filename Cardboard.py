@@ -2408,7 +2408,7 @@ class Extractor(GObject.Object):
                 if self.current_query.endswith("/"):
                     self.current_catalog = [{"File URL": [f"https://i2.{self.current_url.strip('https://').split('api/v2')[0]}{i['path']}" for i in self.obj["pages"]]}]
                 else:
-                    self.current_catalog = [{"ID": str(self.obj["id"]), "Notes": "\n".join(tuple(i for i in self.obj["title"].values())).strip(), "File URL": f"https://t2.{self.current_url.strip('https://').split('api/v2')[0]}{self.obj['cover']['path']}", "Tags": [i["name"].replace(" ", "_") for i in self.obj["tags"]], "Source": self.current_query}]
+                    self.current_catalog = [{"ID": self.current_url.split("://", 1)[-1].split("/", 1)[0] + "_" + str(self.obj["id"]), "Notes": "\n".join(tuple(i for i in self.obj["title"].values())).strip(), "File URL": f"https://t2.{self.current_url.strip('https://').split('api/v2')[0]}{self.obj['cover']['path']}", "Tags": [i["name"].replace(" ", "_") for i in self.obj["tags"]], "Source": self.current_query}]
             if any(i in self.obj for i in ("illust", "illusts")):
                 il = []
                 if "illust" in self.obj: il.append(self.obj["illust"])
