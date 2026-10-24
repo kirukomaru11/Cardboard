@@ -330,16 +330,18 @@ class Window(Window):
         for i in (Post, Gtk.Picture):
             if w.get_ancestor(i):
                 w = w.get_ancestor(i)
+        if w and w.get_ancestor(Manga):
+            w = None
         if isinstance(w, Post):
             if w.media and isinstance(w.media.picture, Picture) and any(i.get_mapped() for i in w.media.picture.get_parent() if isinstance(i, Gtk.Scrollbar)):
                 w = None
                 e.v = []
             if w and w.get_file() and exists(w.get_file()): e.v.append(Gdk.FileList.new_from_list((Gio.File.new_for_uri(w.get_file()),)))
             elif hasattr(w, "file_url") and "://" in w.file_url: e.v.append(Gdk.FileList.new_from_list((Gio.File.new_for_uri(w.file_url),)))
-        if w and w.get_ancestor(Manga) and e.v: e.v.append(Gdk.FileList.new_from_list((Gio.File.new_for_uri(w.get_name()),)))
         if hasattr(w, "get_paintable") and w.get_paintable() and not isinstance(w.get_paintable(), Adw.SpinnerPaintable):
             e.v.insert(0, w.get_paintable())
-            e.v.insert(0, paintable_to_value(w.get_paintable()))
+            v = paintable_to_value(w.get_paintable())
+            if v: e.v.insert(0, v)
         c = None
         if e.v:
             e.set_actions(Gdk.DragAction.COPY | Gdk.DragAction.MOVE)
@@ -1409,7 +1411,10 @@ class Context(Gtk.PopoverMenu):
                 elif "Source" in action:
                     q = (i.launch_url if i.launch_url else i.source) if isinstance(i, Post) else i.get_name()
                 elif "Copy File" in action: return Gdk.Display.get_default().get_clipboard().set_content(Gdk.ContentProvider.new_for_value(Gdk.FileList.new_from_list((Gio.File.new_for_uri(post.get_file()),))))
-                elif "Copy Picture" in action: return Gdk.Display.get_default().get_clipboard().set_content(paintable_to_value(post.get_paintable()))
+                elif "Copy Picture" in action:
+                    v = paintable_to_value(post.get_paintable())
+                    if v: Gdk.Display.get_default().get_clipboard().set_content(v)
+                    return
                 else:
                     q = i.get_dict() if isinstance(i, Post) else {"File URL": i.get_name()}
                 qs.append(q)
