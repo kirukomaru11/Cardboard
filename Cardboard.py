@@ -5,9 +5,8 @@ except ModuleNotFoundError:
         from .Utils import *
     except ModuleNotFoundError:
         print("No Utils")
-        exit()
-
-from gi.repository.Soup import date_time_new_from_http_string
+        import sys
+        sys.exit()
 
 from os import urandom
 from os.path import commonprefix
@@ -790,7 +789,7 @@ class PostData(Gtk.Overlay):
         if self and "/src/" in u and "spoiler" in self.tags: return f"{u.split('/src/')[0].rsplit('/', 1)[0]}/static/spoiler.svg"
         if "/src/" in u: return u.replace("/src/", "/thumb/").rsplit(".", 1)[0] + "." + ("jpg" if Gio.content_type_guess(u)[0].startswith("video") else u.rsplit(".", 1)[-1])
 
-    def read_board(self, c): return getattr(Boards.list.default.get_model()[self.board], c.lower().replace(" ", "_"))
+    def read_board(self, c): return getattr(Boards.list.default.get_model()[self.board], c.lower().replace(" ", "_"), "")
 
     def get_chapter(self): return (self.source.strip("/") + "/") if is_chapter(self.source) else None
 
@@ -1138,9 +1137,10 @@ class Post(PostData):
         launch_url = None
         if "embed" in o and type(o["embed"]) == str:
             launch_url = o["embed"].split('href="', 1)[-1].split('"', 1)[0]
-        comment, replies = tuple(self.__class__.get_property(o, i) for i in ("comment", "replies"))
+        comment = Reply.get_prop(o, "comment")
+        replies = int(o.get("replies", 0) or o.get("nreplies", 0) or 0)
         new = {}
-        for i in PostData.default_titles: new.setdefault(i, self.__class__.get_property(o, i))
+        for i in PostData.default_titles: new.setdefault(i, o.get(i, None))
         for k, default in PostData.default_titles.items():
             if k in ("Added", "Created At"):
                 if not isinstance(new[k], int):
@@ -1303,63 +1303,6 @@ class Post(PostData):
         if self.media and self.media.media_stream: return self.media.media_stream
         else: return next((i for i in (self.full, self.preview) if i and i.uri == self.uri), False)
         return False
-
-    @staticmethod
-    def get_property(p, k):
-        if k in PostData.default_titles and k in p: return p[k]
-        if k == "Tags":
-            t = []
-            if "tags" in p and type(p["tags"]) == str and "rating" in p and type(p["rating"]) == str and "has_children" in p and type(p["has_children"]) == str:
-                t.extend(p["tags"].split(" ") + [p["rating"]])
-                if p["has_children"] == "true": t.append(f"parent:{p['id']}")
-                if "parent_id" in p and (type(p["parent_id"]) == int or type(p["parent_id"]) == str and p["parent_id"].isdigit()):
-                    if int(p["parent_id"]) > 0: t.append(f"parent:{p['parent_id']}")
-            if all(tuple(f"tag_string_{i}" in p and type(p[f"tag_string_{i}"]) == str for i in ("artist", "copyright", "character", "general", "meta"))):
-                t.extend([tag for i in ("artist", "copyright", "character", "general", "meta") for tag in p[f"tag_string_{i}"].split(" ") if tag] + [p["rating"]])
-                if "has_children" in p and p["has_children"]: t.append(f"parent:{p['id']}")
-                if "parent_id" in p and p["parent_id"] != None: t.append(f"parent:{p['parent_id']}")
-            if "attributes" in p and all(i in p["attributes"] for i in ("title", "altTitles", "tags", "contentRating")) and "id" in p and type(p["id"]) == str: t.extend([i.lower().replace(" ", "_") for i in [tuple(p["attributes"]["title"].values())[0]] + [tuple(i.values())[0] for i in p["attributes"]["altTitles"]] + [tuple(i["attributes"]["name"].values())[0] for i in p["attributes"]["tags"]] + [p["attributes"]["contentRating"]]])
-            if "media" in p and p["media"] and "media_filename" in p["media"] and "media_orig" in p["media"]: t.extend([p["media"]["media_filename"], p["media"]["media_orig"]])
-            if "filename" in p or "spoiler" in p: t.extend(([p["filename"] + p["ext"], str(p["tim"]) + p["ext"]] if "filename" in p else []) + (["spoiler"] if "spoiler" in p and p["spoiler"] == 1 else []))
-            return t
-        if k == "ID":
-            if "no" in p: return str(p["no"])
-            if "num" in p: return str(p["num"])
-        if k == "Created At":
-            if "created_at" in p:
-                if "owner" in p and "directory" in p:
-                    d = p["created_at"].rsplit(" ", 2)
-                    d.pop(1)
-                    return date_time_new_from_http_string(" ".join(d)).to_utc().to_unix()
-                if type(p["created_at"]) == str:
-                    if p["created_at"].isdigit(): return GLib.DateTime.new_from_unix_utc(int(p["created_at"]))
-                    else: return GLib.DateTime.new_from_iso8601(p["created_at"]).to_utc().to_unix()
-            if "timestamp" in p: return p["timestamp"]
-            if "time" in p and "no" in p: return GLib.DateTime.new_from_unix_local(p["time"]).to_utc().to_unix()
-            if "time" in p: return p["time"]
-            if "attributes" in p and "createdAt" in p["attributes"]: return GLib.DateTime.new_from_iso8601(p["attributes"]["createdAt"]).to_utc().to_unix()
-        if k == "File URL":
-            if "file_url" in p and "large_file_url" in p: return p["large_file_url"] if p["file_url"].endswith("zip") else p["file_url"]
-            if "media" in p and p["media"] and "remote_media_link" in p["media"] and p["media"]["remote_media_link"]: return p["media"]["remote_media_link"]
-            if "media" in p and p["media"] and "media_link" in p["media"]: return p["media"]["media_link"]
-            if "relationships" in p and "id" in p: return f"https://mangadex.org/covers/{p['id']}/{tuple(i for i in p['relationships'] if i['type'] == 'cover_art')[0]['attributes']['fileName']}"
-        if k == "Source":
-            if "embed" in p and type(p["embed"]) == str: return p["embed"].split('href="', 1)[-1].split('"', 1)[0]
-            if "id" in p and "attributes" in p: return f"https://mangadex.org/title/{p['id']}"
-        if k == "comment":
-            if "comment_processed" in p: return (f"<b>{p['title']}</b><br>" if "title" in p and p["title"] else "") + p["comment_processed"]
-            if "sub" in p or "com" in p: return (f"<b>{p['sub']}</b><br>" if "sub" in p else "") + (p["com"] if "com" in p else "")
-        if k == "filename":
-            if "media" in p and p["media"] and "media_filename" in p["media"]: return p["media"]["media_filename"]
-            if "filename" in p and "ext" in p: return p["filename"] + p["ext"]
-        if k == "poster_id":
-            if "poster_hash" in p: return p["poster_hash"]
-            if "id" in p: return p["id"]
-        if k == "replies" and "nreplies" in p: return p["nreplies"] if p["nreplies"] is None else int(p["nreplies"])
-        if k == "country" and "poster_country" in p: return p["poster_country"]
-        if k == "country_name" and "poster_country_name" in p: return p["poster_country_name"]
-        if k == "Notes" and "attributes" in p and "description" in p["attributes"]: return tuple(p["attributes"]["description"].values())[0] if p["attributes"]["description"].values() else ""
-        if k.lower().replace(" ", "_") in p: return p[k.lower().replace(" ", "_")]
 
     @staticmethod
     def finish_func(mediastream, w):
@@ -1535,7 +1478,7 @@ class Comment(Gtk.Box):
                     i.remove_css_class("highlight")
                     if i.get_name() == uri.strip(">>"): return True
             i = next(iter(i for i in thread.box if i.get_name() == uri.strip(">>")), False)
-            if not i and tuple(it for it in thread.total if Post.get_property(it, "ID") == uri.strip(">>")):
+            if not i and tuple(it for it in thread.total if it.get("ID", "") == uri.strip(">>")):
                 while not i and thread.replies:
                     thread.load_replies(3)
                     i = next(iter(i for i in thread.box if i.get_name() == uri.strip(">>")), False)
@@ -1586,16 +1529,16 @@ class Reply(Comment):
     __gtype_name__ = "Reply"
 
     def __init__(self, o, s, full):
-        Gtk.Box.__init__(self, name=str(Post.get_property(o, "ID")), css_name=self.__gtype_name__.lower(), halign=Gtk.Align.START, orientation=Gtk.Orientation.VERTICAL)
+        Gtk.Box.__init__(self, name=str(o.get("ID", "0")), css_name=self.__gtype_name__.lower(), halign=Gtk.Align.START, orientation=Gtk.Orientation.VERTICAL)
         if full.index(o) == 0: Task.invoke(self.add_css_class, "op")
-        name, time, country, country_name, _id, tripcode, comment = tuple(Post.get_property(o, i) for i in ("name", "Created At", "country", "country_name", "poster_id", "trip", "comment"))
+        name, country, country_name, _id, tripcode, comment = tuple(self.__class__.get_prop(o, i) for i in ("name", "country", "country_name", "poster_id", "trip", "comment"))
         t = []
         if _id: t.append(_id)
         if country: t.append(country_name)
-        label = " ".join([GLib.DateTime.new_from_unix_utc(time).to_local().format("%x (%a) %T"), f"No.{self.get_name()}"])
+        label = " ".join([GLib.DateTime.new_from_unix_utc(o.get("Created At", GLib.DateTime.new_now_utc().to_unix())).to_local().format("%x (%a) %T"), f"No.{self.get_name().rsplit('_', 1)[-1]}"])
         for i in full:
-            if f"&gt;&gt;{self.get_name()}" in (Post.get_property(i, "comment") or ""):
-                l = f"&gt;&gt;{Post.get_property(i, 'ID')}"
+            if f"&gt;&gt;{self.get_name()}" in (self.__class__.get_prop(i, "comment") or ""):
+                l = f"&gt;&gt;{i.get('ID', '0')}"
                 label += f' <a href="{l}" class="link"><small>{l}</small></a>'
         label = Gtk.Label(selectable=True, xalign=0, halign=Gtk.Align.START, wrap=True, label=label, use_markup=True)
         label.connect("activate-link", Comment.open_link)
@@ -1618,8 +1561,22 @@ class Reply(Comment):
         for i in medias:
             i["Board"] = s
             p = Post(i, parent=bottom)
-            Task.invoke(p.set_tooltip_text, Post.get_property(i, "filename"))
+            Task.invoke(p.set_tooltip_text, self.__class__.get_prop(i, "filename"))
         if comment: Task.invoke(Comment.__init__, self, comment, {"yalign": 0, "xalign": 0, "halign": Gtk.Align.START}, {})
+
+    def get_prop(p, k):
+        if k == "comment":
+            if "comment_processed" in p: return (f"<b>{p['title']}</b><br>" if "title" in p and p["title"] else "") + p["comment_processed"]
+            if "sub" in p or "com" in p: return (f"<b>{p['sub']}</b><br>" if "sub" in p else "") + (p["com"] if "com" in p else "")
+        if k == "filename":
+            if "media" in p and p["media"] and "media_filename" in p["media"]: return p["media"]["media_filename"]
+            if "filename" in p and "ext" in p: return p["filename"] + p["ext"]
+        if k == "poster_id":
+            if "poster_hash" in p: return p["poster_hash"]
+            if "id" in p: return p["id"]
+        if k == "country" and "poster_country" in p: return p["poster_country"]
+        if k == "country_name" and "poster_country_name" in p: return p["poster_country_name"]
+        if k.lower().replace(" ", "_") in p: return p[k.lower().replace(" ", "_")]
 
 class Thread(Gtk.ScrolledWindow):
     __gtype_name__ = "Thread"
@@ -2225,12 +2182,12 @@ class Extractor(GObject.Object):
                 self.count = self.current_url.split("page=", 1)[0] + f"page={self.page + 1}" + (("&" + self.current_url.split("page=", 1)[-1].split("&", 1)[-1]) if "&" in self.current_url.split("page=", 1)[-1] else "")
             if isinstance(self.current_catalog, dict):
                 self.current_catalog = [self.current_catalog]
-            if self.current_query and not self.current_query.startswith(("http://", "archive://", "file://", "https://")) and not is_thread(query, self.engine):
+            if self.current_query and not self.current_query.startswith(("http://", "archive://", "file://", "https://")) and not is_thread(query, self.engine) and self.engine in ("4chan", "vichan", "FoolFuuka"):
                 for i in [i for i in self.current_catalog]:
-                    co = Post.get_property(i, "comment")
+                    co = Reply.get_prop(i, "comment")
                     if co and not self.current_query.lower() in co.lower(): self.current_catalog.remove(i)
             for i in self.current_catalog:
-                if "File URL" in i and "files.catbox.moe" in i["File URL"]: i.setdefault("ID", i["File URL"].split(".moe/", 1)[-1].strip("/"))
+                if "File URL" in i and "files.catbox.moe" in i["File URL"]: i.setdefault("ID", "catbox_" + i["File URL"].split(".moe/", 1)[-1].strip("/").rsplit(".", 1)[0])
             self.catalog.extend(self.current_catalog)
         if self.count == None:
             self.count = (len(self.catalog), len(self.catalog))
@@ -2266,7 +2223,7 @@ class Extractor(GObject.Object):
             self.response_to_object()
         elif "vichan.net/" in self.text and not ".json" in self.current_url:
             self.engine = "vichan"
-            self.url_from_url( True)
+            self.url_from_url(True)
             self.response_to_object()
         elif "404" in self.text and "What you are looking for is not here." in self.text or "/official/images/404.png" in self.text and "Click me to go home" in self.text:
             Task.invoke(Toast, f"{u} returned 404")
@@ -2295,7 +2252,17 @@ class Extractor(GObject.Object):
                 attrs = {}
                 for a, dq, sq, unq in ATTR_REGEX.findall(m.group(1) or ""):
                     attrs[a] = dq or sq or unq or ""
-                self.current_catalog.append(attrs)
+                i = {"Tags": []}
+                if "tags" in attrs: i["Tags"].extend(attrs["tags"].split(" "))
+                if "file_url" in attrs: i.setdefault("File URL", attrs["file_url"])
+                if "source" in attrs: i.setdefault("Source", attrs["source"])
+                if attrs.get("created_at", "").isdigit(): i.setdefault("Created At", int(attrs["created_at"]))
+                if "rating" in attrs: i["Tags"].append(attrs["rating"])
+                if attrs.get("parent_id", 0): i["Tags"].append(f"parent:{attrs['parent_id']}")
+                if "id" in attrs:
+                    i.setdefault("ID", attrs["id"])
+                    if attrs.get("has_children", False): i["Tags"].append(f"parent:{attrs['id']}")
+                self.current_catalog.append(i)
             head = ""
         else:
             head = self.text.split("</head>", 1)[0]
@@ -2313,6 +2280,7 @@ class Extractor(GObject.Object):
                 return
             self.count = (self.current_url.split("?", 1)[0] + get_attribute(self.text.split("show-more", 1)[-1].split("<a", 1)[-1], "href")) if '<div class="show-more">' in self.text else "end"
             if "timeline-item" in self.text:
+                prefix = "" if getattr(Boards.list.default.get_model()[self.board], "engine", "") == "Nitter" else "nitter_"
                 for i in self.text.split("timeline-item ")[1:]:
                     if not "attachment" in i: continue
                     user = get_attribute(i, "data-username")
@@ -2335,17 +2303,19 @@ class Extractor(GObject.Object):
                             file = "https://pbs.twimg.com/media/" + h.split("%2F")[-1]
                         elif s:
                             file = s.replace("/pic/", "https://").replace("%2F", "/").split("?", 1)[0]
-                        self.current_catalog.append({"ID": f"{_id}{('_' + str(n)) if n > 0 else ''}", "Tags": tags, "Notes": body.strip(), "Source": f"https://x.com/{user}/status/{_id}", "File URL": file.split("%", 1)[0]})
+                        self.current_catalog.append({"ID": f"{prefix}{_id}{('_' + str(n)) if n > 0 else ''}", "Tags": tags, "Notes": body.strip(), "Source": f"https://x.com/{user}/status/{_id}", "File URL": file.split("%", 1)[0]})
         else:
             for i in ("og:video:secure_url", "og:image:secure_url", "og:image"):
                 if i in head:
                     p = {"File URL": get_attribute(head.split(i, 1)[-1], "content").replace(",resize:640x,quality:90x75", ""), "Source": self.current_url.replace("#comments", "")}
                     if "https://media" in p["File URL"] and ".tenor.com/" in p["File URL"]:
-                        p["ID"] = p["File URL"].rsplit("/", 1)[0].rsplit("/", 1)[-1]
+                        p["ID"] = "tenor_" + p["File URL"].rsplit("/", 1)[0].rsplit("/", 1)[-1]
                     elif "ifunny.co" in self.current_url:
-                        p["ID"] = p["Source"].rsplit("/", 1)[-1].rsplit("-", 1)[-1]
+                        p["ID"] = "ifunny_" +  p["Source"].rsplit("/", 1)[-1].rsplit("-", 1)[-1]
                         if "b7a_" in self.text:
                             p["Tags"] = [i.split("</span", 1)[0].strip("\">#") for i in self.text.split("b7a_")[1:]]
+                    elif "memedroid.com/memes/detail/" in self.current_url:
+                        p["ID"] = self.current_url.split("://", 1)[-1].split("www.", 1)[-1].replace(".com/memes/detail/", "_").split("/", 1)[0]
                     self.current_catalog.append(p)
                     break
             if "og:title" in head:
@@ -2396,22 +2366,23 @@ class Extractor(GObject.Object):
                         self.count = f"{self.current_url.split('data=', 1)[0]}data={json_string({'options': self.obj['resource']['options']})}&source_url="
                         if self.next_page and json(self.current_url.split("data=", 1)[-1].rsplit("&source_url=", 1)[0])["options"]["bookmarks"] == self.obj["resource"]["options"]["bookmarks"]:
                             self.count = "end"
-                self.obj = self.obj["resource_response"]["data"]
+                self.obj = (self.obj["resource_response"]["data"] or [])
                 if isinstance(self.obj, dict):
                     if "results" in self.obj:
                         self.obj = self.obj["results"]
                     else:
                         self.obj = [self.obj]
+                prefix = "" if getattr(Boards.list.default.get_model()[self.board], "engine", "") == "Pinterest" else "pinterest_"
                 for i in self.obj:
                     if "images" in i:
                         tags = []
                         notes = i["seo_title"] if "seo_title" in i else ""
-                        if i.get("pin_join", False):
-                            if i["pin_join"].get("canonical_pin", False):
+                        if i.get("pin_join", {}):
+                            if not "id" in i and (i.get("pin_join", {}).get("canonical_pin", {}) or {}).get("id", False):
                                 i["id"] = i["pin_join"]["canonical_pin"]["id"]
                             for it in i["pin_join"]["visual_annotation"]: tags.append(it.replace(" ", "-").lower())
                         if "board" in i: tags.extend([i["board"]["name"].replace(" ", "-").lower(), f"https://pinterest.com{i['board']['url'].lower()}"])
-                        self.current_catalog.append({"ID": i["id"], "Tags": tags, "Notes": notes.strip(), "Source": f"https://pinterest.com/pin/{i['id']}", "File URL": i["images"]["orig"]["url"]})
+                        self.current_catalog.append({"ID": prefix + i["id"], "Tags": tags, "Notes": notes.strip(), "Source": f"https://pinterest.com/pin/{i['id']}", "File URL": i["images"]["orig"]["url"]})
                 self.obj = {}
             if self.current_url.startswith("https://www.zerochan.net/") and self.current_url.split("/")[-1].split("?")[0].isdigit(): self.current_catalog.append({"File URL": self.obj["full"], "Source": self.obj["source"], "Tags": self.obj["tags"]})
 
@@ -2441,6 +2412,7 @@ class Extractor(GObject.Object):
                     self.count = self.obj["next_url"]
                 else:
                     self.count = "end"
+                prefix = "" if getattr(Boards.list.default.get_model()[self.board], "engine", "") == "Pixiv" else "pixiv_"
                 for p in il:
                     source = f"https://pixiv.net/artworks/{p['id']}"
                     notes = "\n".join([i for i in [p["title"], p["caption"]] if i])
@@ -2448,9 +2420,9 @@ class Extractor(GObject.Object):
                     if p["illust_ai_type"] == 2: tags.append("ai_generated")
                     for i in [p["user"]["account"], p["user"]["name"], f"https://pixiv.net/users/{p['user']['id']}"]: tags.insert(0, i)
                     date = GLib.DateTime.new_from_iso8601(p["create_date"]).to_utc().to_unix()
-                    if p["meta_single_page"]: self.current_catalog.append({"ID": p["id"], "Tags": tags, "Created At": date, "Notes": notes.strip(), "Source": source, "File URL": p["meta_single_page"]["original_image_url"]})
+                    if p["meta_single_page"]: self.current_catalog.append({"ID": prefix + str(p["id"]), "Tags": tags, "Created At": date, "Notes": notes.strip(), "Source": source, "File URL": p["meta_single_page"]["original_image_url"]})
                     else:
-                        for n, i in enumerate(p["meta_pages"]): self.current_catalog.append({"ID": f"{p['id']}_{n}", "Tags": tags, "Created At": date, "Notes": notes.strip(), "Source": source, "File URL": i["image_urls"]["original"]})
+                        for n, i in enumerate(p["meta_pages"]): self.current_catalog.append({"ID": prefix + f"{p['id']}_{n}", "Tags": tags, "Created At": date, "Notes": notes.strip(), "Source": source, "File URL": i["image_urls"]["original"]})
             if "/api/v1/" in self.current_url:
                 if "post" in self.obj:
                     self.obj = self.obj["post"]
@@ -2459,6 +2431,17 @@ class Extractor(GObject.Object):
                 if "@attributes" in self.obj:
                     self.count = (100, self.obj["@attributes"]["count"])
                 self.current_catalog.extend(self.obj["post"])
+                for i in self.current_catalog:
+                    if "id" in i: i.setdefault("ID", i["id"])
+                    if "change" in i: i.setdefault("Created At", i["change"])
+                    if "source" in i: i.setdefault("Source", i["source"])
+                    if type(i.get("tags", False)) == str:
+                        i.setdefault("Tags", i["tags"].split(" "))
+                        if i.get("has_children", False) == "true": i["Tags"].append(f"parent:{i['id']}")
+                        p = i.get("parent_id", False)
+                        if type(p) == int or (type(p) == str and p.isdigit()):
+                            if int(p) > 0: i["Tags"].append(f"parent:{p}")
+                    if "file_url" in i and "preview_url" in i: i.setdefault("File URL", i["preview_url"] if i["file_url"].endswith("zip") else i["file_url"])
             if "posts" in self.obj and type(self.obj["posts"]) == list: self.current_catalog.extend(self.obj["posts"])
             if "data" in self.obj and type(self.obj["data"]) == list:
                 if "/manga/" in self.current_url:
@@ -2492,6 +2475,7 @@ class Extractor(GObject.Object):
                         ll.append(chapter)
                     self.current_catalog = {"Chapters": ll}
                 elif self.obj["data"]:
+                    c = []
                     if len(self.obj["data"]) == 1:
                         covers = sorted(json(Online.Request(self.current_url.split("/manga", 1)[0] + "/cover?limit=100&manga[]=" + "&manga[]=".join([i["id"] for i in self.obj["data"]]), headers=self.current_headers))["data"], key=mangadex_volume_sort)
                         mangas = dict((i["id"], i) for i in self.obj["data"])
@@ -2500,9 +2484,13 @@ class Extractor(GObject.Object):
                             if not id or not id in mangas: continue
                             it = mangas[id].copy()
                             it["File URL"] = f"https://mangadex.org/covers/{it['id']}/{i['attributes']['fileName']}"
-                            self.current_catalog.append(it)
-                        self.count = (len(self.current_catalog), len(self.current_catalog))
-                    else: self.current_catalog.extend(self.obj["data"])
+                            c.append(it)
+                        self.count = (len(c), len(c))
+                    else: c.extend(self.obj["data"])
+                    prefix = "" if getattr(Boards.list.default.get_model()[self.board], "engine", "") == "MangaDex" else "mangadex_"
+                    for i in c:
+                        tags = [it.lower().replace(" ", "_") for it in [next(iter(i["attributes"]["title"].values()), "")] + [next(iter(it.values()), "") for it in i["attributes"]["altTitles"]] + [next(iter(it["attributes"]["name"].values()), "") for it in i["attributes"]["tags"]] + [i["attributes"]["contentRating"]]]
+                        self.current_catalog.append({"ID": prefix + i["id"], "Tags": tags, "File URL": i.get("File URL", f"https://mangadex.org/covers/{i['id']}/{next((it for it in i['relationships'] if it['type'] == 'cover_art'), {}).get('attributes', {}).get('fileName', "")}"), "Notes": next(iter(i["attributes"]["description"].values()), ""), "Source": f"https://mangadex.org/title/{i['id']}", "Created At": GLib.DateTime.new_from_iso8601(i["attributes"]["createdAt"]).to_utc().to_unix()})
             if "chapter" in self.obj and "baseUrl" in self.obj and "result" in self.obj and self.obj["result"] == "ok": self.current_catalog.append({"File URL": [f"{self.obj['baseUrl']}/data/{self.obj['chapter']['hash']}/{i}" for i in self.obj["chapter"]["data"]]})
             if "/api/chan/post/" in self.current_url and not self.current_catalog: self.current_catalog.append(self.obj)
         if type(self.obj) == list:
@@ -2538,33 +2526,76 @@ class Extractor(GObject.Object):
             if self.current_url.startswith("https://www.reddit.com/r/") and "/comments/" in self.current_url:
                 _id = self.current_url.rsplit(".", 1)[0].rsplit("/", 1)[-1]
                 if "media_metadata" in self.obj[0]["data"]["children"][0]["data"]:
-                    for n, i in enumerate(self.obj[0]["data"]["children"][0]["data"]["media_metadata"].values()): self.current_catalog.append({"ID": f"{_id}{('_' + str(n)) if n > 0 else ''}", "Notes": self.obj[0]["data"]["children"][0]["data"]["selftext"].strip(), "File URL": f"https://i.redd.it/{i['id']}.{i['m'].split('/')[-1]}", "Source": self.current_query})
-                elif self.obj[0]["data"]["children"][0]["data"]["media"] and "reddit_video" in self.obj[0]["data"]["children"][0]["data"]["media"]: self.current_catalog.append({"ID": _id, "Notes": "\n".join([self.obj[0]["data"]["children"][0]["data"]["title"], self.obj[0]["data"]["children"][0]["data"]["selftext"]]).strip(), "File URL": self.obj[0]["data"]["children"][0]["data"]["media"]["reddit_video"]["fallback_url"], "Source": self.current_query})
-                else: self.current_catalog.append({"ID": _id, "Notes": "\n".join([self.obj[0]["data"]["children"][0]["data"]["title"], self.obj[0]["data"]["children"][0]["data"]["selftext"]]).strip(), "File URL": self.obj[0]["data"]["children"][0]["data"]["url"], "Source": self.current_query})
+                    for n, i in enumerate(self.obj[0]["data"]["children"][0]["data"]["media_metadata"].values()): self.current_catalog.append({"ID": "reddit_" + f"{_id}{('_' + str(n)) if n > 0 else ''}", "Notes": self.obj[0]["data"]["children"][0]["data"]["selftext"].strip(), "File URL": f"https://i.redd.it/{i['id']}.{i['m'].split('/')[-1]}", "Source": self.current_query})
+                elif self.obj[0]["data"]["children"][0]["data"]["media"] and "reddit_video" in self.obj[0]["data"]["children"][0]["data"]["media"]: self.current_catalog.append({"ID": "reddit_" + _id, "Notes": "\n".join([self.obj[0]["data"]["children"][0]["data"]["title"], self.obj[0]["data"]["children"][0]["data"]["selftext"]]).strip(), "File URL": self.obj[0]["data"]["children"][0]["data"]["media"]["reddit_video"]["fallback_url"], "Source": self.current_query})
+                else: self.current_catalog.append({"ID": "reddit_" + _id, "Notes": "\n".join([self.obj[0]["data"]["children"][0]["data"]["title"], self.obj[0]["data"]["children"][0]["data"]["selftext"]]).strip(), "File URL": self.obj[0]["data"]["children"][0]["data"]["url"], "Source": self.current_query})
             if all(type(i) == dict and "page" in i and "threads" in i for i in self.obj): self.current_catalog.extend([thread for i in self.obj for thread in i["threads"]])
             elif not ("/api/v1" in self.current_url or self.current_url.startswith("https://www.reddit.com/r/")): self.current_catalog.extend(self.obj)
-            if "/posts.json?limit=100&page=" in self.current_url and not len(self.queries) > 1:
-                if self.next_page:
-                    self.count = (100, self.tab.get_child().total)
-                elif self.page == 1 and 100 > len(self.current_catalog):
-                    self.count = (100, len(self.current_catalog))
-                else:
-                    try:
-                        n = Online.Request(self.current_url.replace("/posts.json", "/counts/posts.json").replace("status:any", ""), headers=self.current_headers)
-                        n = json(n.decode())
-                        if "counts" in n and "posts" in n["counts"]:
-                            self.count = (100, 0 if n["counts"]["posts"] == None else n["counts"]["posts"])
-                    except: pass
+            if "/posts.json?limit=100&page=" in self.current_url:
+                for i in self.current_catalog:
+                    if "id" in i: i.setdefault("ID", i["id"])
+                    if "created_at" in i: i.setdefault("Created At", GLib.DateTime.new_from_iso8601(i["created_at"]).to_utc().to_unix())
+                    if "source" in i: i.setdefault("Source", i["source"])
+                    if "file_url" in i and "large_file_url" in i: i.setdefault("File URL", i["large_file_url"] if i["file_url"].endswith("zip") else i["file_url"])
+                    i.setdefault("Tags", [])
+                    i["Tags"].extend([tag for it in ("artist", "copyright", "character", "general", "meta") for tag in i.get(f"tag_string_{it}", "").split(" ") if tag])
+                    if "rating" in i: i["Tags"].append(i["rating"])
+                    if "id" in i and i.get("has_children", None): i["Tags"].append(f"parent:{i['id']}")
+                    if i.get("parent_id", None): i["Tags"].append(f"parent:{i['parent_id']}")
+                if not len(self.queries) > 1:
+                    if self.next_page:
+                        self.count = (100, self.tab.get_child().total)
+                    elif self.page == 1 and 100 > len(self.current_catalog):
+                        self.count = (100, len(self.current_catalog))
+                    else:
+                        try:
+                            n = Online.Request(self.current_url.replace("/posts.json", "/counts/posts.json").replace("status:any", ""), headers=self.current_headers)
+                            n = json(n.decode())
+                            if "counts" in n and "posts" in n["counts"]:
+                                self.count = (100, 0 if n["counts"]["posts"] == None else n["counts"]["posts"])
+                        except: pass
         if "https://a.4cdn.org/" in self.current_url:
+            board = self.current_url.split("https://a.4cdn.org/")[-1].split("/")[0]
+            prefix = "" if getattr(Boards.list.default.get_model()[self.board], "engine", "") == "4chan" else f"4chan_{board}_"
             for i in self.current_catalog:
-                i.setdefault("File URL", f"https://i.4cdn.org/{self.current_url.split('https://a.4cdn.org/')[-1].split('/')[0]}/{i['tim']}{i['ext']}" if "tim" in i and "ext" in i else "")
-                i.setdefault("Source", f"https://boards.4chan.org/{self.current_url.split('https://a.4cdn.org/')[-1].split('/')[0]}/thread/{i['no'] if i['resto'] == 0 else i['resto']}")
+                i.setdefault("ID", prefix + str(i["no"]))
+                i.setdefault("Created At", i["time"])
+                if "filename" in i or "spoiler" in i:
+                    i.setdefault("Tags", [])
+                    i["Tags"].append(i["filename"] + i["ext"])
+                    i["Tags"].append(str(i["tim"]) + i["ext"])
+                    if i.get("spoiler", 0) == 1: i["Tags"].append("spoiler")
+                if i.get("embed", ""): i.setdefault("File URL", i.get("embed", "").split('href="', 1)[-1].split('"', 1)[0])
+                i.setdefault("File URL", f"https://i.4cdn.org/{board}/{i['tim']}{i['ext']}" if "tim" in i and "ext" in i else "")
+                i.setdefault("Source", f"https://boards.4chan.org/{board}/thread/{i['no'] if i['resto'] == 0 else i['resto']}")
+                i.setdefault("Notes", "\n".join((i.get("name", ""), i.get("sub", ""), i.get("com", ""))).strip("\n").strip())
         if "/_/api/chan/" in self.current_url:
-            for i in self.current_catalog: i.setdefault("Source", f"{self.current_url.split('/_/', 1)[0]}/{self.current_url.split('board=', 1)[-1].split('&', 1)[0]}/thread/{i['thread_num']}")
+            for i in self.current_catalog:
+                if "num" in i: i.setdefault("ID", i["num"])
+                if "timestamp" in i: i.setdefault("Created At", i["timestamp"])
+                if i.get("embed", ""): i.setdefault("File URL", i.get("embed", "").split('href="', 1)[-1].split('"', 1)[0])
+                i.setdefault("Tags", [])
+                if i.get("media", False):
+                    if i["media"].get("media_filename", ""): i["Tags"].append(i["media"]["media_filename"])
+                    if i["media"].get("media_orig", ""): i["Tags"].append(i["media"]["media_orig"])
+                    if i["media"].get("spoiler", 0) == 1: i["Tags"].append("spoiler")
+                    if i["media"].get("remote_media_link", ""): i.setdefault("File URL", i["media"]["remote_media_link"])
+                    if i["media"].get("media_link", ""): i.setdefault("File URL", i["media"]["media_link"])
+                i.setdefault("Notes", "\n".join((i.get("name", "") or "", i.get("title_processed", "") or "", i.get("comment_sanitized", "") or "")).strip("\n").strip())
+                if "thread_num" in i: i.setdefault("Source", f"{self.current_url.split('/_/', 1)[0]}/{self.current_url.split('board=', 1)[-1].split('&', 1)[0]}/thread/{i['thread_num']}")
         if "/catalog.json" in self.current_url or ("/res/" in self.current_url and self.current_url.endswith(".json")):
             base_url = self.current_url.split("/catalog.json")[0].split("/res/", 1)[0]
             for i in self.current_catalog:
                 if "no" in i and "resto" in i:
+                    i.setdefault("ID", str(i["no"]))
+                    i.setdefault("Created At", i["time"])
+                    if i.get("embed", ""): i.setdefault("File URL", i.get("embed", "").split('href="', 1)[-1].split('"', 1)[0])
+                    if "filename" in i or "spoiler" in i:
+                        i.setdefault("Tags", [])
+                        i["Tags"].append(i["filename"] + i["ext"])
+                        i["Tags"].append(str(i["tim"]) + i["ext"])
+                        if i.get("spoiler", 0) == 1: i["Tags"].append("spoiler")
+                    i.setdefault("Notes", "\n".join((i.get("name", ""), i.get("sub", ""), i.get("com", ""))).strip("\n").strip())
                     l = [i] + (i["extra_files"] if "extra_files" in i else [])
                     for it in l: it.setdefault("File URL", f"{base_url.strip('/').rsplit('/', 1)[0]}/static/deleted.svg" if "ext" in it and it["ext"] == "deleted" else ("https://" + EMBED_REGEX(it["embed"]).group(1).strip("https:").strip("//")) if "embed" in it and "src" in it["embed"] else f"{base_url}/src/{it['tim']}{it['ext']}" if "tim" in it and "ext" in it else "")
                     i.setdefault("Source", f"{base_url}/res/{i['no'] if i['resto'] == 0 else i['resto']}.html")
@@ -2633,24 +2664,25 @@ class Extractor(GObject.Object):
                     self.current_url = f"{base}/_/api/chan/post/?board={board}&num={self.current_url.rsplit('#', 1)[-1].strip('p')}"
                 else:
                     self.current_url = f"{base}/_/api/chan/thread/?board={board}&num={self.current_url.split('/thread/', 1)[-1].split('/', 1)[0]}"
-            elif force_engine:
-                self.url_from_query("", self.current_url.split("/thread", 1)[0].strip("/"))
-        if self.engine == "Danbooru" and ("/post/show/" in self.current_url or "/posts/" in self.current_url):
-            self.url_from_query("id:" + self.current_url.replace("/post/show/", "/posts/").split("?")[0].split("/posts/")[-1], "https://" + self.current_url.split("https://", 1)[-1].split("/",1)[0])
-        if self.engine == "Gelbooru" and "id=" in self.current_url:
-            self.url_from_query("id:" + self.current_url.split("id=")[-1].split("&")[0], "https://" + self.current_url.split("https://", 1)[-1].split("/",1)[0])
-        if self.engine == "Moebooru" and "/post/show/" in self.current_url:
-            self.url_from_query("id:" + self.current_url.split("?")[0].split("/post/show/")[-1].split("/")[0], "https://" + self.current_url.split("https://", 1)[-1].split("/",1)[0])
-        if self.engine in ("Danbooru", "Gelbooru", "Moebooru") and (force_engine or "?" in self.current_url and "tags=" in self.current_url):
-            self.url_from_query(GLib.Uri.parse_params(self.current_url.split("?")[-1], -1, "&", GLib.UriParamsFlags.NONE)["tags"].replace(" + ", " ") if "?" in self.current_url and "tags=" in self.current_url else "", "https://" + self.current_url.split("https://", 1)[-1].split("/",1)[0])
+            elif force_engine: self.url_from_query("", self.current_url.split("/thread", 1)[0].strip("/"))
+        if self.engine == "Danbooru" and ("/post/show/" in self.current_url or "/posts/" in self.current_url): self.url_from_query("id:" + self.current_url.replace("/post/show/", "/posts/").split("?")[0].split("/posts/")[-1], "https://" + self.current_url.split("https://", 1)[-1].split("/",1)[0])
+        if self.engine == "Gelbooru" and "id=" in self.current_url: self.url_from_query("id:" + self.current_url.split("id=")[-1].split("&")[0], "https://" + self.current_url.split("https://", 1)[-1].split("/",1)[0])
+        if self.engine == "Moebooru" and "/post/show/" in self.current_url: self.url_from_query("id:" + self.current_url.split("?")[0].split("/post/show/")[-1].split("/")[0], "https://" + self.current_url.split("https://", 1)[-1].split("/",1)[0])
+        if self.engine in ("Danbooru", "Gelbooru", "Moebooru") and (force_engine or "?" in self.current_url and "tags=" in self.current_url): self.url_from_query(GLib.Uri.parse_params(self.current_url.split("?")[-1], -1, "&", GLib.UriParamsFlags.NONE)["tags"].replace(" + ", " ") if "?" in self.current_url and "tags=" in self.current_url else "", "https://" + self.current_url.split("https://", 1)[-1].split("/",1)[0])
 
     def url_from_query(self, query, url):
-        if is_online(query): return query
-        if self.engine == "Danbooru": return f"{url}/posts.json?limit=100&page={self.page}&tags={query}"
-        if self.engine == "Gelbooru": return f"{url}/index.php?limit=100&pid={self.page - 1}&page=dapi&s=post&q=index&json=1&tags={query}"
-        if self.engine == "Moebooru": return f"{url}/post.xml?limit=100&page={self.page}&tags={query}"
-        if self.engine == "FoolFuuka": return f"{url.rsplit('/', 1)[0]}/_/api/chan/post/?board={url.rsplit('/', 1)[1]}&num={query.split('id:')[-1]}" if query.startswith("id:") else f"{url.rsplit('/', 1)[0]}/_/api/chan/gallery/?board={url.rsplit('/', 1)[1]}&page={self.page}{query.strip('$') if query.startswith('$') else ''}"
-        if self.engine == "vichan": return f"{url}/catalog.json"
+        if is_online(query):
+            self.current_url = query
+        if self.engine == "Danbooru":
+            self.current_url = f"{url}/posts.json?limit=100&page={self.page}&tags={query}"
+        if self.engine == "Gelbooru":
+            self.current_url = f"{url}/index.php?limit=100&pid={self.page - 1}&page=dapi&s=post&q=index&json=1&tags={query}"
+        if self.engine == "Moebooru":
+            self.current_url = f"{url}/post.xml?limit=100&page={self.page}&tags={query}"
+        if self.engine == "FoolFuuka":
+            self.current_url = f"{url.rsplit('/', 1)[0]}/_/api/chan/post/?board={url.rsplit('/', 1)[1]}&num={query.split('id:')[-1]}" if query.startswith("id:") else f"{url.rsplit('/', 1)[0]}/_/api/chan/gallery/?board={url.rsplit('/', 1)[1]}&page={self.page}{query.strip('$') if query.startswith('$') else ''}"
+        if self.engine == "vichan":
+            self.current_url = f"{url}/catalog.json"
 
     def query_to_url(self):
         bd = Boards.list.default.get_model()[self.board]
@@ -2664,7 +2696,7 @@ class Extractor(GObject.Object):
                 if i.engine == "FoolFuuka" and "4chan.org/" in self.current_query and i.url.endswith("/" + self.current_query.split("org/", 1)[-1].split("/", 1)[0]):
                     self.board = i.name
                     self.current_query = i.url + "/" + self.current_query.split("org/", 1)[-1].split("/", 1)[-1]
-                if i.url and self.current_query.startswith(i.url) or any(i.engine == a and b in self.current_query for a, b in (("4chan", f"4chan.org/{i.url}/thread"), ("MangaDex", "mangadex.org/"), ("Pinterest", "pinterest.com/"))):
+                if (i.url and self.current_query.startswith(i.url)) or any(i.engine == a and b in self.current_query for a, b in (("4chan", f"4chan.org/{i.url}/thread"), ("MangaDex", "mangadex.org/"), ("Pinterest", "pinterest.com/"))):
                     self.board = i.name
         bd = Boards.list.default.get_model()[self.board] or Boards.list.default.get_model()[0]
         self.engine, url, self.current_url = bd.engine, bd.url, self.current_query
@@ -2788,8 +2820,7 @@ class Extractor(GObject.Object):
                 self.engine = "Cardboard"
             self.url_from_url()
         else:
-            if self.engine in ("Danbooru", "Gelbooru", "Moebooru", "FoolFuuka", "vichan"):
-                self.current_url = self.url_from_query(self.current_query, url)
+            if self.engine in ("Danbooru", "Gelbooru", "Moebooru", "FoolFuuka", "vichan"): self.url_from_query(self.current_query, url)
             if self.engine == bd.engine:
                 self.current_url += bd.append_to_search
             self.current_url = self.current_url.replace("= ", "=")
@@ -2870,7 +2901,7 @@ def reopen_tab(*_):
 
 def mangadex_volume_sort(i): return alphabetical_sort(i.get("attributes", {}).get("volume", 0))
 
-def id_sort(i): return Post.get_property(i, "ID") or 0
+def id_sort(i): return int(i.get("ID", "0") or 0)
 
 ITEM_REGEX = Regex(r"<item>\s*<title>(?P<Title>.*?)</title>\s*<link>(?P<URL>.*?)</link>", DOTALL)
 POST_REGEX = Regex(r'<post\b([^>]*)>(?:.*?</post>)?')
@@ -3061,8 +3092,8 @@ def main():
         "Window": {
             "New": "app.new-window",
             "Open URIs": "app.open-uris",
-            "Fullscreen": "win.fullscreen",
-            "Second Bar": "win.second-view"
+            "Fullscreen": "F11",
+            "Second Bar": "<primary><shift>b"
         },
         "Picture" : Picture.shortcuts,
         "Media Controls": MediaControls.shortcuts,
