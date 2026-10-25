@@ -3099,8 +3099,8 @@ def main():
         "Posts": {
             "Properties": "<primary>e",
             "Select All": "<primary>a",
-            "Favorite": "app.move-or-fav",
-            "Download": "app.download"
+            "Favorite": "<primary>d",
+            "Download": "<primary>s"
         },
         "Search": {
             "Search": "Return",
