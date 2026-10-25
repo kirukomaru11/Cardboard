@@ -1866,6 +1866,8 @@ class Boards(Gtk.Popover, metaclass=BoardsMeta):
         l[-1].connect("apply", self.__class__.change_name)
         for i in ("URL", "Append to Search"):
             l.append(Adw.EntryRow(title=i))
+            if i == "URL": item.bind_property("engine", l[-1], "title", DEFAULT_BIND, self.__class__.url_title_bind)
+            else: item.bind_property("engine", l[-1], "title", DEFAULT_BIND, self.__class__.append_to_search_title_bind)
             item.bind_property(i.lower().replace(" ", "-"), l[-1], "text", SYNC_BIND)
         for i in ("Search Autocomplete", "Launch Sources", "Download Favorites", "Download Thumbnails"):
             l.append(Adw.SwitchRow(title=i))
@@ -1874,11 +1876,26 @@ class Boards(Gtk.Popover, metaclass=BoardsMeta):
         item.bind_property("engine", l[-1], "selected", SYNC_BIND, self.__class__.engine_bind, self.__class__.engine_bind)
         for i in l: group.add(i)
         header = Adw.HeaderBar()
+        header.pack_end(PopupDialogButton())
         header.pack_end(Button(icon_name="user-trash", tooltip_text="Delete Search", callback=self.__class__.prompt_delete))
-        edit = Adw.Dialog(child=Adw.ToastOverlay(child=Adw.ToolbarView(content=page)), content_height=505, content_width=500)
-        edit.get_child().get_child().add_top_bar(header)
+        edit = PopupDialog(content=Adw.ToolbarView(content=page), content_height=505, content_width=500)
+        edit.get_content().add_top_bar(header)
         item.bind_property("name", edit, "title", DEFAULT_BIND)
-        edit.present()
+        edit.present(Window.current)
+
+    @staticmethod
+    def url_title_bind(b, v):
+        if v in ("Cardboard", "MangaDex", "Pixiv", "Pinterest"): return "Default Search"
+        if v == "Nitter": return "Instance (leave empty for auto)"
+        if v == "4chan": return "4chan Board Name"
+        if v in ("vichan", "FoolFuuka"): return "Board URL"
+        if v in ("Danbooru", "Gelbooru", "Moebooru"): return "Booru URL"
+        return "URL"
+
+    @staticmethod
+    def append_to_search_title_bind(b, v):
+        if v == "Gelbooru": return "Append to Search (usually user_id and api_key required)"
+        return "Append to Search"
 
     @staticmethod
     def engine_bind(b, v):
@@ -1901,9 +1918,9 @@ class Boards(Gtk.Popover, metaclass=BoardsMeta):
     def prompt_delete(b):
         if len(Boards.list.default.get_model()) == 1: return Toast("At least one board is required")
         delete = Prompt(callback=Boards.do_delete, appearance=Adw.ResponseAppearance.DESTRUCTIVE)
-        delete.dialog = b.get_ancestor(Adw.Dialog)
-        b.get_ancestor(Adw.Dialog).bind_property("title", delete, "heading", DEFAULT_BIND, Boards.prompt_heading)
-        delete.present(delete.dialog)
+        delete.dialog = PostEditor.get_self(b)
+        delete.dialog.bind_property("title", delete, "heading", DEFAULT_BIND, Boards.prompt_heading)
+        delete.present(Window.current)
 
     @staticmethod
     def change_name(w, p=None):
@@ -2071,6 +2088,8 @@ class Pixiv:
     def setup(w, d):
         w.view.connect("resource-load-started", Pixiv.monitor_code, w)
         w.tab, w.code_verifier, w.code_challenge = d
+        w.set_title("Pixiv Login")
+        Task.invoke(Toast, "Pixiv authentication required...")
 
 class Extractor(GObject.Object):
     __gtype_name__ = "Extractor"
@@ -2163,9 +2182,7 @@ class Extractor(GObject.Object):
             if self.engine == "Nitter": self.current_headers.update(NITTER_HEADERS)
             if "pixiv.net" in self.current_url:
                 auth = Pixiv.get_auth(self.tab)
-                if not auth:
-                    Task.invoke(Toast, "Pixiv authentication required...")
-                    continue
+                if not auth: continue
                 self.current_headers.update({**Pixiv.headers, "Authorization": f"Bearer {auth}"})
             if "/api/v1" in self.current_url: self.current_headers.update({"Accept": "text/css"})
             if not (self.text or self.obj) and self.current_url and is_online(self.current_url) and not self.current_catalog: self.response_to_object()
@@ -2606,7 +2623,8 @@ class Extractor(GObject.Object):
                     i.setdefault("Source", f"{base_url}/res/{i['no'] if i['resto'] == 0 else i['resto']}.html")
 
     def cardboard(self):
-        q =  " ".join(tuple(i for i in self.current_query.split(" ") if not i.lower().startswith("order:"))) + getattr(Boards.list.default.get_model()[self.board], "URL", "")
+        q = getattr(Boards.list.default.get_model()[self.board], "url", "") + " " + " ".join(tuple(i for i in self.current_query.split(" ") if not i.lower().startswith("order:"))) + " " + getattr(Boards.list.default.get_model()[self.board], "append_to_search", "")
+        q = q.strip()
         sort = tuple(i for i in self.current_query.split(" ") if i.lower().startswith("order:"))
         sort = sort[0].lower().split(":")[1] if sort else "Added"
         terms = tuple(i for i in q.split(" ") if i and not i.startswith(("-board:", "board:")))
@@ -2712,20 +2730,23 @@ class Extractor(GObject.Object):
                 self.current_url = self.current_url.split("/series/", 1)[0].rstrip("/") + "/series/" + self.current_url.rsplit("/series/", 1)[-1].split("/", 1)[0].strip("/") + "/full-chapter-list"
         if self.current_query.startswith(("https://x.com/", "https://xcancel.com", "https://nitter.net/")) or self.engine == "Nitter" and not is_online(self.current_query):
             self.engine = "Nitter"
-            try:
-                global NITTER_INSTANCE
-                NITTER_INSTANCE = NITTER_INSTANCE or False
-            except Exception as ex:
-                NITTER_INSTANCE = (GLib.getenv("NITTER_INSTANCE") or "").rstrip("/")
-            if not NITTER_INSTANCE:
-                instances = [i.split("\"", 1)[0].rstrip("/") for i in Online.Request("https://xxcancel.com/").decode().rsplit("instance-list\">", 1)[-1].split("<p>", 1)[0].split("href=\"")[1:-1]]
-                for i in instances:
-                    if i in NITTER_SKIP: continue
-                    r = repr(Online.Request(i + "/X/search", headers=NITTER_HEADERS).decode().strip().replace("\n", "").replace(";", "").replace("\\", ""))
-                    if "This website is running Anubis" in r or "challenge-error-text" in r or "Enter search..." in r:
-                        NITTER_INSTANCE = i
-                        break
-                    else: NITTER_SKIP.append(i)
+            global NITTER_INSTANCE
+            if bd.engine == "Nitter" and bd.url and bd.url.rstrip("/"):
+                NITTER_INSTANCE = bd.url.rstrip("/")
+            else:
+                try:
+                    NITTER_INSTANCE = NITTER_INSTANCE or False
+                except Exception as ex:
+                    NITTER_INSTANCE = (GLib.getenv("NITTER_INSTANCE") or "").rstrip("/")
+                if not NITTER_INSTANCE:
+                    instances = [i.split("\"", 1)[0].rstrip("/") for i in Online.Request("https://xxcancel.com/").decode().rsplit("instance-list\">", 1)[-1].split("<p>", 1)[0].split("href=\"")[1:-1]]
+                    for i in instances:
+                        if i in NITTER_SKIP: continue
+                        r = repr(Online.Request(i + "/X/search", headers=NITTER_HEADERS).decode().strip().replace("\n", "").replace(";", "").replace("\\", ""))
+                        if "This website is running Anubis" in r or "challenge-error-text" in r or "Enter search..." in r:
+                            NITTER_INSTANCE = i
+                            break
+                        else: NITTER_SKIP.append(i)
             if NITTER_INSTANCE:
                 start = self.current_query.split("://", 1)[-1].split("/", 1)[-1]
                 user = start.split("/", 1)[0] if not start.startswith("search") else ""
@@ -2749,7 +2770,8 @@ class Extractor(GObject.Object):
                 b = json(Online.Request(f"https://www.pinterest.com/resource/BoardResource/get/?data={json_string({'options': {'slug': q, 'username': user, 'field_set_key': 'detailed'}})}&source_url=", headers=PINTEREST_HEADERS))
                 self.current_url = f"https://www.pinterest.com/resource/BoardFeedResource/get/?data={json_string({'options': {'board_id': b['resource_response']['data']['id'], 'field_set_key': 'react_grid_pin', 'prepend': False, 'bookmarks': None}})}&source_url="
             else:
-                self.current_url = f"https://www.pinterest.com/resource/BaseSearchResource/get/?data={json_string({'options': {'query': self.current_query.split('?q=', 1)[-1].split('&')[0], 'scope': 'pins', 'rs': 'typed', 'bookmarks': None}})}&source_url="
+                i = (bd.url if bd.engine == self.engine else "").split("://", 1)[-1].rsplit("/", 1)[-1]
+                self.current_url = f"https://www.pinterest.com/resource/BaseSearchResource/get/?data={json_string({'options': {'query': self.current_query.split('?q=', 1)[-1].split('&')[0] + i, 'scope': 'pins', 'rs': 'typed', 'bookmarks': None}})}&source_url="
         if self.current_query.startswith("https://boards.4chan.org/") or self.engine == "4chan" and not is_online(self.current_query):
             self.engine, url = "4chan", self.current_query.split(".org/")[-1].split("/")[0] if is_online(self.current_query) else url
             if "/thread/" in self.current_query:
@@ -2758,7 +2780,7 @@ class Extractor(GObject.Object):
                     self.current_url = self.current_url.rsplit("/", 1)[0]
                 self.current_url += ".json"
             else:
-                self.current_url = f"https://a.4cdn.org/{url}/catalog.json"
+                self.current_url = f"https://a.4cdn.org/{url.split('://', 1)[-1].split('/', 1)[-1].split('/', 1)[0]}/catalog.json"
         if self.current_query.replace("www.", "").startswith("https://pixiv.net") or self.engine == "Pixiv" and not is_online(self.current_query):
             self.engine = "Pixiv"
             if "p=" in self.current_query and self.current_query.split("p=", 1)[-1].split("&")[0].isdigit():
@@ -2768,7 +2790,7 @@ class Extractor(GObject.Object):
             elif "/artworks/" in self.current_query:
                 self.current_url = f"https://app-api.pixiv.net/v1/illust/detail?illust_id={self.current_query.split('/artworks/', 1)[-1]}"
             else:
-                self.current_url = f'https://app-api.pixiv.net/v1/search/illust?word={self.current_query.split("/search?q=")[-1].split("/tags/")[-1].split("&")[0].split("/")[0]}'
+                self.current_url = f'https://app-api.pixiv.net/v1/search/illust?word={self.current_query.split("/search?q=")[-1].split("/tags/")[-1].split("&")[0].split("/")[0]}' + (bd.url if bd.engine == self.engine else "").split("://", 1)[-1].rsplit("/", 1)[-1]
             if self.page > 1:
                 self.current_url += f"&offset={30 * (self.page - 1)}"
             if self.engine == bd.engine:
@@ -2787,6 +2809,7 @@ class Extractor(GObject.Object):
                 q = self.current_query
                 if "id:" in q or "/title/" in q and not q.endswith("/"):
                     q = "$&ids[]=" + q.split(":")[-1].split("/title/", 1)[-1]
+                q += (bd.url if bd.engine == self.engine else "").split("://", 1)[-1].rsplit("/", 1)[-1]
                 self.current_url = "https://api.mangadex.org/manga?includes[]=cover_art&limit=100&offset=" + str((self.page - 1) * 100 if self.page > 1 else 0) + ((q.strip('$') if q.startswith('$') else '&title=\'' + q + '\'') if q else '')
             if self.engine == bd.engine:
                 self.current_url += bd.append_to_search
