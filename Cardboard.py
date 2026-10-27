@@ -2696,6 +2696,8 @@ class Extractor(GObject.Object):
     def url_from_query(self, query, url):
         if is_online(query):
             self.current_url = query
+        else:
+            query = GLib.Uri.escape_string(query)
         if self.engine == "Danbooru":
             self.current_url = f"{url}/posts.json?limit=100&page={self.page}&tags={query}"
         if self.engine == "Gelbooru":
