@@ -2004,7 +2004,7 @@ class Search(Gtk.Box):
         self.page = 1
         if not text.get_text() or not self.boards.get_selected().search_autocomplete: return
         q = self.get_current_word()
-        if q.startswith(("http://", "https://")): return
+        if is_online(q): return
         elif q.startswith(("/", "file://")):
             q = uri_decode(q) if q.startswith("file://") else q
             self.do_complete([{"label": basename(i), "value": uri_encode(i.rstrip("/") or "/")} for i in Search.completer.get_completions(q)])
@@ -2755,9 +2755,9 @@ class Extractor(GObject.Object):
                 if "id:" in self.current_query or "/status/" in self.current_query:
                     self.current_url = f"{NITTER_INSTANCE}/i/status/{self.current_query.split('/status/')[-1].split('#')[0].split('id:')[-1].split(' ')[0]}?prefs=hideTweetStats=on,hideBanner=on,hidePins=on,hideReplies=on,hideCommunityNotes=on,proxyVideos=,replaceTwitter=,replaceYouTube=,replaceReddit="
                 elif user:
-                    self.current_url = f"{NITTER_INSTANCE}/{user}/search?f-media=on&prefs=hideTweetStats=on,hideBanner=on,hidePins=on,hideReplies=on,hideCommunityNotes=on,proxyVideos=,replaceTwitter=,replaceYouTube=,replaceReddit=&q={self.current_query.split('q=')[-1] if 'q=' in self.current_query else '' if self.current_query.startswith(('https://', 'http://')) else self.current_query}"
+                    self.current_url = f"{NITTER_INSTANCE}/{user}/search?f-media=on&prefs=hideTweetStats=on,hideBanner=on,hidePins=on,hideReplies=on,hideCommunityNotes=on,proxyVideos=,replaceTwitter=,replaceYouTube=,replaceReddit=&q={self.current_query.split('q=')[-1] if 'q=' in self.current_query else '' if is_online(self.current_query) else self.current_query}"
                 else:
-                    self.current_url = f"{NITTER_INSTANCE}/search?f=tweets&f-media=on&prefs=hideTweetStats=on,hideBanner=on,hidePins=on,hideReplies=on,hideCommunityNotes=on,proxyVideos=,replaceTwitter=,replaceYouTube=,replaceReddit=&q={self.current_query.split('q=')[-1] if 'q=' in self.current_query else '' if self.current_query.startswith(('https://', 'http://')) else self.current_query}"
+                    self.current_url = f"{NITTER_INSTANCE}/search?f=tweets&f-media=on&prefs=hideTweetStats=on,hideBanner=on,hidePins=on,hideReplies=on,hideCommunityNotes=on,proxyVideos=,replaceTwitter=,replaceYouTube=,replaceReddit=&q={self.current_query.split('q=')[-1] if 'q=' in self.current_query else '' if is_online(self.current_query) else GLib.Uri.escape_string(self.current_query)}"
             else: Task.invoke(Toast, "No Nitter instance available")
         if self.current_query.startswith("https://") and "pinterest.com/" in self.current_query or self.engine == "Pinterest" and not is_online(self.current_query):
             self.engine = "Pinterest"
@@ -2773,6 +2773,8 @@ class Extractor(GObject.Object):
                 self.current_url = f"https://www.pinterest.com/resource/BoardFeedResource/get/?data={json_string({'options': {'board_id': b['resource_response']['data']['id'], 'field_set_key': 'react_grid_pin', 'prepend': False, 'bookmarks': None}})}&source_url="
             else:
                 i = (bd.url if bd.engine == self.engine else "").split("://", 1)[-1].rsplit("/", 1)[-1]
+                if not is_online(self.current_query):
+                    self.current_query = GLib.Uri.escape_string(self.current_query)
                 self.current_url = f"https://www.pinterest.com/resource/BaseSearchResource/get/?data={json_string({'options': {'query': self.current_query.split('?q=', 1)[-1].split('&')[0] + i, 'scope': 'pins', 'rs': 'typed', 'bookmarks': None}})}&source_url="
         if self.current_query.startswith("https://boards.4chan.org/") or self.engine == "4chan" and not is_online(self.current_query):
             self.engine, url = "4chan", self.current_query.split(".org/")[-1].split("/")[0] if is_online(self.current_query) else url
@@ -2792,6 +2794,8 @@ class Extractor(GObject.Object):
             elif "/artworks/" in self.current_query:
                 self.current_url = f"https://app-api.pixiv.net/v1/illust/detail?illust_id={self.current_query.split('/artworks/', 1)[-1]}"
             else:
+                if not is_online(self.current_query):
+                    self.current_query = GLib.Uri.escape_string(self.current_query)
                 self.current_url = f'https://app-api.pixiv.net/v1/search/illust?word={self.current_query.split("/search?q=")[-1].split("/tags/")[-1].split("&")[0].split("/")[0]}' + (bd.url if bd.engine == self.engine else "").split("://", 1)[-1].rsplit("/", 1)[-1]
             if self.page > 1:
                 self.current_url += f"&offset={30 * (self.page - 1)}"
@@ -2809,6 +2813,8 @@ class Extractor(GObject.Object):
                 self.current_url = f"https://api.mangadex.org/manga/{self.current_query.split('/title/')[-1].strip('/').rsplit('/', 1)[-1]}/feed?limit=500&order[volume]=desc&order[chapter]=desc&offset=0"
             else:
                 q = self.current_query
+                if not is_online(q):
+                    q = GLib.Uri.escape_string(q)
                 if "id:" in q or "/title/" in q and not q.endswith("/"):
                     q = "$&ids[]=" + q.split(":")[-1].split("/title/", 1)[-1]
                 q += (bd.url if bd.engine == self.engine else "").split("://", 1)[-1].rsplit("/", 1)[-1]
