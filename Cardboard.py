@@ -2017,10 +2017,10 @@ class Search(Gtk.Box):
     def do_complete(self, q):
         if isinstance(q, str) and q:
             try:
-                q = Online.Request(f"https://danbooru.donmai.us/autocomplete.json?search[query]={q}&search[type]=tag_query&limit=15", headers={"User-Agent": "Cardboard"})
+                q = Online.Request(f"https://danbooru.donmai.us/autocomplete.json?search[query]={GLib.Uri.escape_string(q)}&search[type]=tag_query&limit=15", headers={"User-Agent": "Cardboard"})
                 q = json(q.decode()) if q else []
             except Exception as e:
-                Task.invoke(Toast, e)
+                Task.invoke(Toast, f"Autocomplete error: {e}")
                 q = []
         else:
             q = []
