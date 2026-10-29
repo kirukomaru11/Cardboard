@@ -1219,7 +1219,7 @@ class Post(PostData):
     @staticmethod
     def start_task(widget, uri, headers=None, media_stream_args=None):
         headers = headers or {}
-        if any(i in uri for i in (".donmai.us", "mangadex.org")): headers.update({"User-Agent": "Cardboard"})
+        if any(i in uri for i in ("mangadex.org",)): headers.update({"User-Agent": "Cardboard"})
         return PaintableTask(func=Post.finish_func, data=widget, uri=uri, media_stream_args=media_stream_args, headers=headers)
 
     def automatic_tags(self):
@@ -1338,7 +1338,7 @@ class Post(PostData):
 
     def do_download(self, url, file):
         headers = {}
-        if any(i in url for i in ("mangadex.org", ".donmai.us")): headers.update({"User-Agent": "Cardboard"})
+        if any(i in url for i in ("mangadex.org",)): headers.update({"User-Agent": "Cardboard"})
         b = Online.Request(url, headers=headers)
         set_contents(file, contents=b)
         if self.get_root(): Task.invoke(self.get_ancestor(Tab).tab.set_loading, False)
@@ -2017,7 +2017,7 @@ class Search(Gtk.Box):
     def do_complete(self, q):
         if isinstance(q, str) and q:
             try:
-                q = Online.Request(f"https://danbooru.donmai.us/autocomplete.json?search[query]={GLib.Uri.escape_string(q)}&search[type]=tag_query&limit=15", headers={"User-Agent": "Cardboard"})
+                q = Online.Request(f"https://danbooru.donmai.us/autocomplete.json?search[query]={GLib.Uri.escape_string(q)}&search[type]=tag_query&limit=15")
                 q = json(q.decode()) if q else []
             except Exception as e:
                 Task.invoke(Toast, f"Autocomplete error: {e}")
@@ -2175,7 +2175,7 @@ class Extractor(GObject.Object):
                 if isinstance(self.tab.get_child().count, str):
                     self.current_url = self.tab.get_child().count
             final_queries.append(self.current_query)
-            if any(i in self.current_url for i in ("mangadex.org", ".donmai.us")): self.current_headers.update({"User-Agent": "Cardboard"})
+            if any(i in self.current_url for i in ("mangadex.org",)): self.current_headers.update({"User-Agent": "Cardboard"})
             if "pinterest.com" in self.current_url:
                 if not Online.get_cookie(domain="pinterest.com", name="csrftoken"): Online.add_cookie(name="csrftoken", value=urandom(16).hex(), domain=".pinterest.com")
                 self.current_headers.update(PINTEREST_HEADERS)
