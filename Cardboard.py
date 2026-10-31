@@ -2181,6 +2181,12 @@ class Extractor(GObject.Object):
                 self.current_headers.update(PINTEREST_HEADERS)
             if self.engine == "Nitter": self.current_headers.update(NITTER_HEADERS)
             if "pixiv.net" in self.current_url:
+                try:
+                    global WebKit
+                    from gi.repository import WebKit
+                except Exception as e:
+                    Task.invoke(Toast, "Pixiv requires WebKitGTK")
+                    continue
                 auth = Pixiv.get_auth(self.tab)
                 if not auth: continue
                 self.current_headers.update({**Pixiv.headers, "Authorization": f"Bearer {auth}"})
