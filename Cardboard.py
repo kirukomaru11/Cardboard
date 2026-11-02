@@ -340,7 +340,7 @@ class Window(Window):
             elif hasattr(w, "file_url") and "://" in w.file_url: e.v.append(Gdk.FileList.new_from_list((Gio.File.new_for_uri(w.file_url),)))
         if hasattr(w, "get_paintable") and w.get_paintable() and not isinstance(w.get_paintable(), Adw.SpinnerPaintable):
             e.v.insert(0, w.get_paintable())
-            v = paintable_to_value(w.get_paintable())
+            v = Paintable.to_value(w.get_paintable())
             if v: e.v.insert(0, v)
         c = None
         if e.v:
@@ -1110,7 +1110,7 @@ class PostEditor(PopupDialog):
             paintable = i.get_paintable()
             if not paintable: return Toast("No paintable")
             try:
-                i.tags = [i for i in json(Online.MultipartRequest("https://autotagger.donmai.us/evaluate", fields={"format": "json"}, files=[("file", "image.png", "image/png", paintable_get_texture(paintable.get_current_image()).save_to_png_bytes())]).decode())[0]["tags"]]
+                i.tags = [i for i in json(Online.MultipartRequest("https://autotagger.donmai.us/evaluate", fields={"format": "json"}, files=[("file", "image.png", "image/png", Paintable.to_texture(paintable.get_current_image()).save_to_png_bytes())]).decode())[0]["tags"]]
                 Toast("Tags updated")
             except Exception as e: print(e, "Could not update tags")
         self.start()
@@ -1234,7 +1234,7 @@ class Post(PostData):
                 if mimetype.startswith("video"): t.append("video")
                 if mimetype == "image/gif" and "animated" in t: t.append("animated_gif")
                 if mimetype == "image/png" and "animated" in t: t.append("animated_png")
-                full = get_paintable(self.full)
+                full = Paintable.get(self.full)
                 w, h = full.get_intrinsic_width(), full.get_intrinsic_height()
                 if max(w, h) > 10000: t.append("incredibly_absurdres")
                 if w >= 3200 and h >= 2400: t.append("absurdres")
@@ -1412,7 +1412,7 @@ class Context(Gtk.PopoverMenu):
                     q = (i.launch_url if i.launch_url else i.source) if isinstance(i, Post) else i.get_name()
                 elif "Copy File" in action: return Gdk.Display.get_default().get_clipboard().set_content(Gdk.ContentProvider.new_for_value(Gdk.FileList.new_from_list((Gio.File.new_for_uri(post.get_file()),))))
                 elif "Copy Picture" in action:
-                    v = paintable_to_value(post.get_paintable())
+                    v = Paintable.to_value(post.get_paintable())
                     if v: Gdk.Display.get_default().get_clipboard().set_content(v)
                     return
                 else:
