@@ -1695,6 +1695,7 @@ class Chapter(ListObject):
         l.binds.append(l.get_property("item").bind_property("url", box, "name", DEFAULT_BIND))
         l.binds.append(l.get_property("item").bind_property("title", box.get_first_child(), "label", DEFAULT_BIND))
         l.binds.append(l.get_property("item").bind_property("subtitle", box.get_last_child(), "label", DEFAULT_BIND))
+        Task.invoke(box.get_parent().set_halign, Gtk.Align.CENTER)
 
     @staticmethod
     def unbind(f, l):
@@ -1705,18 +1706,25 @@ class Chapter(ListObject):
     @staticmethod
     def teardown(f, l): l.set_child(None)
 
-class Chapters(Gtk.Overlay):
+class Chapters(Adw.Bin):
     __gtype_name__ = "Chapters"
     model = GObject.Property(type=List)
 
     def __init__(self, chapters=None, data=""):
-        l = Gtk.ListView(single_click_activate=True, halign=Gtk.Align.CENTER, css_classes=("navigation-sidebar",), model=Gtk.NoSelection())
-        sw = Gtk.ScrolledWindow(child=l)
+        f = Gtk.StringFilter.new(Gtk.PropertyExpression.new(Chapter, None, "title"))
+        l = Gtk.ListView(single_click_activate=True, halign=Gtk.Align.CENTER, css_classes=("navigation-sidebar",), model=Gtk.NoSelection(model=Gtk.FilterListModel(filter=f)))
+        sw = Gtk.ScrolledWindow(child=l, vexpand=True)
         sw.connect("edge-reached", self.__class__.load_more)
-        super().__init__(css_name=self.__gtype_name__.lower(), child=sw)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        search = Gtk.SearchEntry(placeholder_text="Search", halign=Gtk.Align.CENTER)
+        search.bind_property("text", f, "search", SYNC_BIND)
+        box.append(search)
+        overlay = Gtk.Overlay(child=sw)
+        box.append(overlay)
+        super().__init__(css_name=self.__gtype_name__.lower(), child=box)
         self.count = data
-        self.add_overlay(Adw.StatusPage(icon_name="edit-find-symbolic", title="No Results"))
-        l.get_model().bind_property("n-items", self.get_last_child(), "visible", DEFAULT_BIND, invert_bool_bind)
+        overlay.add_overlay(Adw.StatusPage(icon_name="edit-find-symbolic", title="No Results"))
+        l.get_model().bind_property("n-items", overlay.get_last_child(), "visible", DEFAULT_BIND, invert_bool_bind)
         if not hasattr(Chapter, "factory"):
             factory = Chapter.factory = Gtk.SignalListItemFactory.new()
             factory.connect("setup", Chapter.setup)
@@ -1725,15 +1733,15 @@ class Chapters(Gtk.Overlay):
             factory.connect("teardown", Chapter.teardown)
         l.connect("activate", self.__class__.activate)
         l.set_factory(Chapter.factory)
-        self.bind_property("model", l.get_model(), "model", DEFAULT_BIND)
+        self.bind_property("model", l.get_model().get_model(), "model", DEFAULT_BIND)
         self.model = List(Chapter, list=chapters if chapters else [])
 
     @staticmethod
     def load_more(sw, p=3):
-        self = sw.get_parent()
+        self = sw.get_ancestor(Chapters)
         if not self: return
-        if p == 3 and not self.get_parent().tab.get_loading():
-            if getattr(self, "count", False): self.get_parent().load(next_page=True)
+        if p == 3 and not self.get_ancestor(Tab).tab.get_loading():
+            if getattr(self, "count", False): self.get_ancestor(Tab).load(next_page=True)
 
     def load_page(self, q=None, data=""):
         self.count = data
@@ -2969,8 +2977,10 @@ INFO = {
 }
 
 APP_CSS = r"""
+.toolbar-fullscreen chapters entry { margin-top: 8px; }
+chapters > box { border-spacing: 8px; }
 chapters listview { font-size: 24px; }
-chapters listview row { margin-bottom: 20px; }
+chapters listview row { margin-bottom: 8px; }
 tabbar:not(.visible) separator { opacity: 0; }
 tabbar:not(.visible) tab:selected:not(:hover) { background: none; }
 tabbar:not(.visible) tab:selected:not(:hover) button,
