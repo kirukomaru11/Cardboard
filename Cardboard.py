@@ -1334,7 +1334,16 @@ class Post(PostData):
     def set_size(self):
         if self.get_root() and (self.get_ancestor(Reply) or self.get_ancestor(Adw.WrapBox)):
             p = self.get_paintable(displaying=True)
-            if p: Task.invoke(self.set_size_request, *clamp_size(min((self.get_root().get_height(), self.get_root().get_width())), p.get_intrinsic_width(), p.get_intrinsic_height()))
+            if p:
+                n = 280
+                w, h = p.get_intrinsic_width(), p.get_intrinsic_height()
+                if n >= max(w, h):
+                    scale = n / max(w, h)
+                    w = round(w * scale)
+                    h = round(h * scale)
+                else:
+                    w, h = clamp_size(min((self.get_root().get_height(), self.get_root().get_width())), w, h)
+                Task.invoke(self.set_size_request, w, h)
 
     def do_download(self, url, file):
         headers = {}
@@ -3001,7 +3010,6 @@ thread viewport > box { border-spacing: 10px; font-size: 20px; margin-bottom: 10
 reply { transition: background-color 0.3s; margin: 0px 10px; border-radius: 10px; padding: 10px; background: var(--shade-color); }
 reply header { border-spacing: 8px; }
 reply.op { background: none; margin: 0px; padding: 0px 10px; }
-reply media { margin: 4px 0px; min-width: 120px; min-height: 50px; }
 thread reply.highlight { background: color-mix(in srgb, var(--shade-color) 90%, var(--window-fg-color)); }
 
 .bottom-bar search { margin: 4px 6px 2px 6px; }
