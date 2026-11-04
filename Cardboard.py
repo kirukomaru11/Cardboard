@@ -25,7 +25,6 @@ register_adapter(tuple, json_string)
 register_adapter(GLib.DateTime, datetime_adapter)
 
 class Window(Window):
-    __gtype_name__ = "Window"
     drop_target_gtypes = (Gdk.FileList, Gio.File, Gtk.Label)
     prev_button = GObject.Property(type=Gtk.Button)
     next_button = GObject.Property(type=Gtk.Button)
@@ -384,7 +383,6 @@ class Window(Window):
     def clipboard_read_text(cl, r): open_files(cl.read_text_finish(r).split("\n"))
 
 class Tab(Adw.Bin):
-    __gtype_name__ = "Tab"
     history = GObject.Property(type=object)
     index = GObject.Property(type=int, minimum=0)
     tab = GObject.Property(type=Adw.TabPage)
@@ -393,7 +391,7 @@ class Tab(Adw.Bin):
     context_menu = Menu({"!a": Menu({"New Tab": "new-tab", "New Window": "new-window", "Reopen Closed Tab": "reopen-tab"}), "!b": Menu({"Move to Other View": "context-move-or-fav", "Close Tab": "context-close"})})
 
     def __init__(self, view, query, page, board):
-        super().__init__(css_name=self.__gtype_name__.lower(), focusable=True)
+        super().__init__(css_name=self.__class__.__name__.lower(), focusable=True)
         v = view or Window.current.stack.get_visible_child()
         view = view or Window.current.stack.get_first_child()
         current_tab = v.get_selected_page().get_child() if v and v.get_selected_page() else False
@@ -615,8 +613,6 @@ class Tab(Adw.Bin):
         return tabs
 
 class Catalog(Masonry):
-    __gtype_name__ = "Catalog"
-
     total = GObject.Property(type=int, default=0)
 
     def __init__(self, *args):
@@ -663,8 +659,6 @@ class Catalog(Masonry):
         Toast(m, timeout=1)
 
 class PostData(Gtk.Overlay):
-    __gtype_name__ = "PostData"
-
     @GObject.Property(type=str, default="Favorites")
     def board(self): return getattr(self, "_board", "")
 
@@ -826,7 +820,6 @@ PostData.default_names = dict((PostData.prop_get_name(i), i) for i in PostData.d
 PostData.default_titles = dict((PostData.prop_get_title(i), i) for i in PostData.default)
 
 class PostEditor(PopupDialog):
-    __gtype_name__ = "PostEditor"
     bindings = GObject.Property(type=object)
     posts = GObject.Property(type=object)
     tags = GObject.Property(type=TagRow)
@@ -1126,8 +1119,6 @@ class PostEditor(PopupDialog):
     def get_all(): return [i for i in PopupDialog.get_all() if isinstance(i, PostEditor)]
 
 class Post(PostData):
-    __gtype_name__ = "Post"
-
     before = GObject.Property(type=Adw.Bin)
     preview = GObject.Property(type=Gdk.Paintable)
     full = GObject.Property(type=Gdk.Paintable)
@@ -1173,7 +1164,7 @@ class Post(PostData):
             elif type(default.default_value) != type(new[k]):
                 new[k] = default.default_value
         o = new
-        super().__init__(post=o, css_name=self.__gtype_name__.lower(), overflow=Gtk.Overflow.HIDDEN)
+        super().__init__(post=o, css_name=self.__class__.__name__.lower(), overflow=Gtk.Overflow.HIDDEN)
         self.launch_url = launch_url
         self.before = Adw.Bin(css_name="before", focusable=False, limit_events=True, sensitive=False, can_target=False, can_focus=False, focus_on_click=False, hexpand=True, vexpand=True)
         self.add_overlay(self.before)
@@ -1369,8 +1360,6 @@ class Post(PostData):
             Task(self.do_download, i[1], f).start()
 
 class Context(Gtk.PopoverMenu):
-    __gtype_name__ = "Context"
-
     post = GObject.Property(type=Gtk.Widget)
 
     def __init__(self): super().__init__(has_arrow=False)
@@ -1441,11 +1430,10 @@ class Context(Gtk.PopoverMenu):
             if "Copy" in action: Gdk.Display.get_default().get_clipboard().set("\n".join(qs))
 
 class Comment(Gtk.Box):
-    __gtype_name__ = "Comment"
     def __init__(self, comment, args={}, wargs={}):
         self.comment, self.args, self.wargs = comment, args, wargs
         self.args.update({"use_markup": True, "selectable": True, "wrap": True, "wrap_mode": Pango.WrapMode.WORD_CHAR})
-        super().__init__(css_name=self.__gtype_name__.lower(), orientation=Gtk.Orientation.VERTICAL)
+        super().__init__(css_name=self.__class__.__name__.lower(), orientation=Gtk.Orientation.VERTICAL)
         d = ParseComment(self.comment).body
         for n, i in enumerate(d):
             if not i or len(i) == 1: continue
@@ -1540,10 +1528,8 @@ class ParseComment(HTMLParser):
         if args["label"]: self.body[-1].append(args)
 
 class Reply(Comment):
-    __gtype_name__ = "Reply"
-
     def __init__(self, o, s, full):
-        Gtk.Box.__init__(self, name=str(o.get("ID", "0")), css_name=self.__gtype_name__.lower(), halign=Gtk.Align.START, orientation=Gtk.Orientation.VERTICAL)
+        Gtk.Box.__init__(self, name=str(o.get("ID", "0")), css_name=self.__class__.__name__.lower(), halign=Gtk.Align.START, orientation=Gtk.Orientation.VERTICAL)
         if full.index(o) == 0: Task.invoke(self.add_css_class, "op")
         name, country, country_name, _id, tripcode, comment = tuple(self.__class__.get_prop(o, i) for i in ("name", "country", "country_name", "poster_id", "trip", "comment"))
         t = []
@@ -1593,14 +1579,12 @@ class Reply(Comment):
         if k.lower().replace(" ", "_") in p: return p[k.lower().replace(" ", "_")]
 
 class Thread(Gtk.ScrolledWindow):
-    __gtype_name__ = "Thread"
-
     def __init__(self, q):
         self.total = q[3]
         self.replies = q[3][50 * (q[1] - 1):]
         self.board = q[2]
         self.box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        super().__init__(css_name=self.__gtype_name__.lower(), child=Gtk.Viewport(scroll_to_focus=False, child=self.box))
+        super().__init__(css_name=self.__class__.__name__.lower(), child=Gtk.Viewport(scroll_to_focus=False, child=self.box))
         self.connect("edge-reached", self.__class__.load_replies)
         Task.invoke(self.load_replies)
 
@@ -1626,8 +1610,6 @@ class Thread(Gtk.ScrolledWindow):
         if self.get_parent(): Task.invoke(Toast, f"{self.get_parent().get_page()} of {total_pages(len(self.total), 50)}")
 
 class Manga(Gtk.ScrolledWindow):
-    __gtype_name__ = "Manga"
-
     def __iter__(self):
         for i in self.get_child().get_child().get_child(): yield i
 
@@ -1639,7 +1621,7 @@ class Manga(Gtk.ScrolledWindow):
         else:
             self.pages = q["File URL"]
         for i in ("maximum-size", "tightening-threshold"): App.default.get_active_window().lookup_action("manga-width").bind_property("state", clamp, i, DEFAULT_BIND, unpack_bind)
-        super().__init__(css_name=self.__gtype_name__.lower(), focusable=True, child=Gtk.Viewport(child=clamp, vscroll_policy=Gtk.ScrollablePolicy.NATURAL))
+        super().__init__(css_name=self.__class__.__name__.lower(), focusable=True, child=Gtk.Viewport(child=clamp, vscroll_policy=Gtk.ScrollablePolicy.NATURAL))
         Task.invoke(self.load_pages)
         self.connect("edge-reached", self.__class__.load_pages)
         self.get_vadjustment().connect("value-changed", self.sync_page)
@@ -1682,7 +1664,6 @@ class Manga(Gtk.ScrolledWindow):
                 Task.invoke(Palette.set_colors, widget.get_paintable())
 
 class Chapter(ListObject):
-    __gtype_name__ = "Chapter"
     title = GObject.Property(type=str)
     subtitle = GObject.Property(type=str)
     url = GObject.Property(type=str)
@@ -1716,7 +1697,6 @@ class Chapter(ListObject):
     def teardown(f, l): l.set_child(None)
 
 class Chapters(Adw.Bin):
-    __gtype_name__ = "Chapters"
     model = GObject.Property(type=List)
 
     def __init__(self, chapters=None, data=""):
@@ -1730,7 +1710,7 @@ class Chapters(Adw.Bin):
         box.append(search)
         overlay = Gtk.Overlay(child=sw)
         box.append(overlay)
-        super().__init__(css_name=self.__gtype_name__.lower(), child=box)
+        super().__init__(css_name=self.__class__.__name__.lower(), child=box)
         self.count = data
         overlay.add_overlay(Adw.StatusPage(icon_name="edit-find-symbolic", title="No Results"))
         l.get_model().bind_property("n-items", overlay.get_last_child(), "visible", DEFAULT_BIND, invert_bool_bind)
@@ -1761,8 +1741,6 @@ class Chapters(Adw.Bin):
     def activate(listview, p): Tab.create(query=listview.get_model().get_item(p).url)
 
 class Board(ListObject):
-    __gtype_name__ = "Board"
-
     engines = List(Gtk.StringObject, unique="string", list=("Cardboard", "Danbooru", "Gelbooru", "Moebooru", "MangaDex", "4chan", "FoolFuuka", "vichan", "Pixiv", "Nitter", "Pinterest"), static=True)
 
     id = GObject.Property(type=int, nick="ID", default=0)
@@ -1776,7 +1754,7 @@ class Board(ListObject):
         self._name = value
         if old_name:
             if not self in Boards.list.default.get_model(): return
-            App.default.data.update(table=self.__class__.__gtype_name__ + "s", column="Name", value=self.name, conditions="Name = ?", conds=(old_name,))
+            App.default.data.update(table=self.__class__.__name__ + "s", column="Name", value=self.name, conditions="Name = ?", conds=(old_name,))
             App.default.data.update(table="Posts", column="Board", value=self.name, conditions="Board = ?", conds=(old_name,))
             prev = App.default.data_folder.get_child(old_name)
             if prev.query_exists(): prev.move(App.default.data_folder.get_child(self.name), Gio.FileCopyFlags.NONE)
@@ -1814,7 +1792,7 @@ class Board(ListObject):
         name = p.get_name().replace("-", "_")
         v = getattr(self, name, None)
         p = p.get_nick() or name.title().replace("_", " ")
-        App.default.data.update(table=self.__class__.__gtype_name__ + "s", column=p, value=v, conditions="Name = ?", conds=(self.name,))
+        App.default.data.update(table=self.__class__.__name__ + "s", column=p, value=v, conditions="Name = ?", conds=(self.name,))
 
     @staticmethod
     def setup(f, l): l.set_child(Gtk.Label(xalign=0))
@@ -1848,8 +1826,6 @@ class BoardsMeta(type(Gtk.Popover)):
         for i in range(len(Boards.list.default.get_model())): yield Boards.list.default.get_item(i)
 
 class Boards(Gtk.Popover, metaclass=BoardsMeta):
-    __gtype_name__ = "Boards"
-
     model = GObject.Property(type=Gtk.SingleSelection)
     list = GObject.Property(type=Gtk.SortListModel, default=Gtk.SortListModel(sorter=Gtk.NumericSorter(expression=Gtk.PropertyExpression.new(Board, None, "id")), model=List(Board, unique="name", static=True)))
 
@@ -1866,7 +1842,7 @@ class Boards(Gtk.Popover, metaclass=BoardsMeta):
         self.list.bind_property("n-items", box.get_last_child(), "visible", DEFAULT_BIND, bool_bind)
         box.append(Button(callback=Board.new, label="Add New Board", css_classes=["flat"]))
         box.get_last_child().get_first_child().set_xalign(0)
-        self.add_css_class(self.__gtype_name__.lower())
+        self.add_css_class(self.__class__.__name__.lower())
 
     @staticmethod
     def row_activate(l, n):
@@ -1955,12 +1931,10 @@ class Boards(Gtk.Popover, metaclass=BoardsMeta):
     def get_selected(self): return self.model.get_selected_item()
 
 class Suggestion(ListObject):
-    __gtype_name__ = "Suggestion"
     label = GObject.Property(type=str)
     value = GObject.Property(type=str)
 
 class Search(Gtk.Box):
-    __gtype_name__ = "Search"
     page = GObject.Property(type=int, minimum=1, default=1)
     locked = GObject.Property(type=bool, default=False)
     autocomplete = GObject.Property(type=Autocomplete)
@@ -2109,8 +2083,6 @@ class Pixiv:
         Task.invoke(Toast, "Pixiv authentication required...")
 
 class Extractor(GObject.Object):
-    __gtype_name__ = "Extractor"
-
     tab = GObject.Property(type=Tab)
     paintable = GObject.Property(type=Gdk.Paintable)
     text = GObject.Property(type=str)
