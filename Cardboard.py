@@ -2009,9 +2009,11 @@ class Search(Gtk.Box):
         if isinstance(q, str) and q:
             try:
                 q = Online.Request(f"https://danbooru.donmai.us/autocomplete.json?search[query]={GLib.Uri.escape_string(q)}&search[type]=tag_query&limit=15")
-                q = json(q.decode()) if q else []
+                q = q.decode() if q else None
+                q = json(q) if q else []
             except Exception as e:
-                Task.invoke(Toast, f"Autocomplete error: {e}")
+                if q and " is down for maintenance." in q: Task.invoke(Toast, "Danbooru is down for maintenance", timeout=1)
+                else:  print("Autocomplete error", e)
                 q = []
         else:
             q = []
