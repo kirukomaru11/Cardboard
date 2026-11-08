@@ -1936,8 +1936,8 @@ class Suggestion(ListObject):
     value = GObject.Property(type=str)
 
 class Search(Gtk.Box):
+    autocomplete_site = "Danbooru"
     cache = OrderedDict()
-    online = True
     page = GObject.Property(type=int, minimum=1, default=1)
     locked = GObject.Property(type=bool, default=False)
     autocomplete = GObject.Property(type=Autocomplete)
@@ -2020,21 +2020,27 @@ class Search(Gtk.Box):
         if isinstance(q, str) and q in Search.cache:
             Search.cache.move_to_end(q)
             q = Search.cache[q]
-        if isinstance(q, str) and q and Search.online:
+        if isinstance(q, str) and q and Search.autocomplete_site:
             try:
-                s = q
-                q = Online.Request(f"https://danbooru.donmai.us/autocomplete.json?search[query]={GLib.Uri.escape_string(q)}&search[type]=tag_query&limit=15")
+                query = GLib.Uri.escape_string(q)
+                if Search.autocomplete_site == "Danbooru":
+                    q = Online.Request(f"https://danbooru.donmai.us/autocomplete.json?search[query]={query}&search[type]=tag_query&limit=15")
+                else:
+                    q = Online.Request(f"https://gelbooru.com/index.php?page=autocomplete2&type=tag_query&term={query}&limit=15")
                 q = q.decode() if q else None
                 q = json(q) if q else []
                 q = tuple({"label": f"{GLib.markup_escape_text(i['antecedent'])} → <b>{GLib.markup_escape_text(i['label'])}</b>" if "antecedent" in i else GLib.markup_escape_text(i["label"]), "value": i["value"]} for i in q)
-                Search.cache[s] = q
-                Search.cache.move_to_end(s)
+                Search.cache[query] = q
+                Search.cache.move_to_end(query)
                 while len(Search.cache) > 200: Search.cache.popitem(last=False)
-                q = Search.cache[s]
+                q = Search.cache[query]
             except Exception as e:
-                Search.online = False
-                if q and " is down for maintenance." in q: Task.invoke(Toast, "Danbooru is down for maintenance", timeout=1)
-                else: print("Autocomplete error", e)
+                if q and " is down for maintenance." in q:
+                    Search.autocomplete_site = "Gelbooru"
+                    Task.invoke(Toast, "Danbooru is down for maintenance", timeout=1)
+                else:
+                    Search.autocomplete_site = ""
+                    print("Autocomplete error", e)
         if not (isinstance(q, list) or isinstance(q, tuple)):
             q = []
         l = [Suggestion(label=i["label"], value=i["value"]) for i in q]
