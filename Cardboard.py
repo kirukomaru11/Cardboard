@@ -2493,7 +2493,7 @@ class Extractor(GObject.Object):
                         if type(p) == int or (type(p) == str and p.isdigit()):
                             if int(p) > 0: i["Tags"].append(f"parent:{p}")
                     if "file_url" in i and "preview_url" in i: i.setdefault("File URL", i["preview_url"] if i["file_url"].endswith("zip") else i["file_url"])
-                if any(i.get("Engine", "") == "Danbooru" for i in self.current_catalog):
+                if False and any(i.get("Engine", "") == "Danbooru" for i in self.current_catalog):
                     d = []
                     for i in [i for i in self.current_catalog]:
                         if i.get("Engine", "") == "Danbooru":
