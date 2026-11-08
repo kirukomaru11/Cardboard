@@ -13,6 +13,7 @@ from os.path import commonprefix
 from re import compile as Regex, DOTALL
 from html import unescape as html_unescape
 from html.parser import HTMLParser
+from collections import OrderedDict
 
 from sqlite3 import register_adapter
 def datetime_adapter(d): return d.to_utc().to_unix()
@@ -1935,6 +1936,8 @@ class Suggestion(ListObject):
     value = GObject.Property(type=str)
 
 class Search(Gtk.Box):
+    cache = OrderedDict()
+    online = True
     page = GObject.Property(type=int, minimum=1, default=1)
     locked = GObject.Property(type=bool, default=False)
     autocomplete = GObject.Property(type=Autocomplete)
@@ -1994,30 +1997,47 @@ class Search(Gtk.Box):
         self = text.get_ancestor(Search)
         self.page = 1
         if not text.get_text() or not self.boards.get_selected().search_autocomplete: return
-        q = self.get_current_word()
-        if is_online(q): return
-        elif q.startswith(("/", "file://")):
+        q = str(self.get_current_word())
+        board = self.boards.get_selected()
+        if is_online(q) or "http://" in q or "https://" in q: return
+        elif q.startswith(("/", "file://")) and board.engine == "Cardboard":
             q = uri_decode(q) if q.startswith("file://") else q
-            self.do_complete([{"label": basename(i), "value": uri_encode(i.rstrip("/") or "/")} for i in Search.completer.get_completions(q)])
-        elif q.startswith(("regex", "-regex")): self.do_complete([{"label": PostData.prop_get_title(i), "value": (("regex" if q.startswith("r") else "-regex") + "_" + i + ":")} for i in PostData.default_names])
-        elif q.startswith(("board:", "-board:")): self.do_complete([{"label": i.name, "value": ("board:" if q.startswith("b") else "-board:") + i.name.replace(" ", "_")} for i in Boards])
+            self.do_complete([{"label": GLib.markup_escape_text(basename(i)), "value": uri_encode(i.rstrip("/") or "/")} for i in Search.completer.get_completions(q)])
+        elif q.startswith(("regex", "-regex")) and board.engine == "Cardboard": self.do_complete([{"label": PostData.prop_get_title(i), "value": (("regex" if q.startswith("r") else "-regex") + "_" + i + ":")} for i in PostData.default_names])
+        elif q.startswith("order:") and board.engine == "Cardboard":
+            l = [{"label": "Random", "value": "order:random"}]
+            for i in PostData.default_names:
+                l.append({"label": PostData.prop_get_title(i), "value": "order:" + i})
+                l.append({"label": PostData.prop_get_title(i) + " <b>Ascending</b>", "value": "order:" + i + "_asc"})
+            l = [i for i in l if i["value"].startswith(q)]
+            self.do_complete(l)
+        elif q.startswith(("board:", "-board:")) and board.engine == "Cardboard": self.do_complete([{"label": GLib.markup_escape_text(i.name), "value": ("board:" if q.startswith("b") else "-board:") + i.name.replace(" ", "_")} for i in Boards])
         else:
             self.add_css_class("searching")
             Task(self.do_complete, q).start()
 
     def do_complete(self, q):
-        if isinstance(q, str) and q:
+        if isinstance(q, str) and q in Search.cache:
+            Search.cache.move_to_end(q)
+            q = Search.cache[q]
+        if isinstance(q, str) and q and Search.online:
             try:
+                s = q
                 q = Online.Request(f"https://danbooru.donmai.us/autocomplete.json?search[query]={GLib.Uri.escape_string(q)}&search[type]=tag_query&limit=15")
                 q = q.decode() if q else None
                 q = json(q) if q else []
+                q = tuple({"label": f"{GLib.markup_escape_text(i['antecedent'])} → <b>{GLib.markup_escape_text(i['label'])}</b>" if "antecedent" in i else GLib.markup_escape_text(i["label"]), "value": i["value"]} for i in q)
+                Search.cache[s] = q
+                Search.cache.move_to_end(s)
+                while len(Search.cache) > 200: Search.cache.popitem(last=False)
+                q = Search.cache[s]
             except Exception as e:
+                Search.online = False
                 if q and " is down for maintenance." in q: Task.invoke(Toast, "Danbooru is down for maintenance", timeout=1)
-                else:  print("Autocomplete error", e)
-                q = []
-        else:
+                else: print("Autocomplete error", e)
+        if not (isinstance(q, list) or isinstance(q, tuple)):
             q = []
-        l = [Suggestion(label=f"{GLib.markup_escape_text(i['antecedent'])} → <b>{GLib.markup_escape_text(i['label'])}</b>" if "antecedent" in i else GLib.markup_escape_text(i["label"]), value=i["value"]) for i in (q or [])]
+        l = [Suggestion(label=i["label"], value=i["value"]) for i in q]
         Task.invoke(self.remove_css_class, "searching")
         Task.invoke(self.autocomplete.model.replace, l)
         Task.invoke(self.autocomplete.listview.get_model().unselect_all)
@@ -2330,11 +2350,11 @@ class Extractor(GObject.Object):
                     if "https://media" in p["File URL"] and ".tenor.com/" in p["File URL"]:
                         p["ID"] = "tenor_" + p["File URL"].rsplit("/", 1)[0].rsplit("/", 1)[-1]
                     elif "ifunny.co" in self.current_url:
-                        p["ID"] = "ifunny_" +  p["Source"].rsplit("/", 1)[-1].rsplit("-", 1)[-1]
+                        p["ID"] = "ifunny_" +  p["Source"].rsplit("/", 1)[-1].rsplit("-", 1)[-1].split("?", 1)[0]
                         if "b7a_" in self.text:
                             p["Tags"] = [i.split("</span", 1)[0].strip("\">#") for i in self.text.split("b7a_")[1:]]
                     elif "memedroid.com/memes/detail/" in self.current_url:
-                        p["ID"] = self.current_url.split("://", 1)[-1].split("www.", 1)[-1].replace(".com/memes/detail/", "_").split("/", 1)[0]
+                        p["ID"] = self.current_url.split("://", 1)[-1].split("www.", 1)[-1].replace(".com/memes/detail/", "_").split("/", 1)[0].split("?", 1)[0]
                     self.current_catalog.append(p)
                     break
             if "og:title" in head:
@@ -2451,6 +2471,12 @@ class Extractor(GObject.Object):
                     self.count = (100, self.obj["@attributes"]["count"])
                 self.current_catalog.extend(self.obj["post"])
                 for i in self.current_catalog:
+                    if False and "owner" in i and i["owner"] == "danbooru":
+                        d = next((i for i in Boards if "https://danbooru.donmai.us" in i.url), False)
+                        if d:
+                            i.setdefault("Board", d.name)
+                            i.setdefault("Engine", "Danbooru")
+                            continue
                     if "id" in i: i.setdefault("ID", i["id"])
                     if "change" in i: i.setdefault("Created At", i["change"])
                     if "source" in i: i.setdefault("Source", i["source"])
@@ -2461,6 +2487,18 @@ class Extractor(GObject.Object):
                         if type(p) == int or (type(p) == str and p.isdigit()):
                             if int(p) > 0: i["Tags"].append(f"parent:{p}")
                     if "file_url" in i and "preview_url" in i: i.setdefault("File URL", i["preview_url"] if i["file_url"].endswith("zip") else i["file_url"])
+                if any(i.get("Engine", "") == "Danbooru" for i in self.current_catalog):
+                    d = []
+                    for i in [i for i in self.current_catalog]:
+                        if i.get("Engine", "") == "Danbooru":
+                            self.current_catalog.remove(i)
+                            d.append(i["md5"])
+                        else:
+                            i["Engine"] = "Gelbooru"
+                    for i in range(0, len(d), 2):
+                        t = " or ".join(["md5:"+ it for it in d[i:i+2]])
+                        r = Online.Request(f"https://danbooru.donmai.us/posts.json?limit=100&page=1&tags={t}")
+                        break
             if "posts" in self.obj and type(self.obj["posts"]) == list: self.current_catalog.extend(self.obj["posts"])
             if "data" in self.obj and type(self.obj["data"]) == list:
                 if "/manga/" in self.current_url:
@@ -2550,18 +2588,19 @@ class Extractor(GObject.Object):
                 else: self.current_catalog.append({"ID": "reddit_" + _id, "Notes": "\n".join([self.obj[0]["data"]["children"][0]["data"]["title"], self.obj[0]["data"]["children"][0]["data"]["selftext"]]).strip(), "File URL": self.obj[0]["data"]["children"][0]["data"]["url"], "Source": self.current_query})
             if all(type(i) == dict and "page" in i and "threads" in i for i in self.obj): self.current_catalog.extend([thread for i in self.obj for thread in i["threads"]])
             elif not ("/api/v1" in self.current_url or self.current_url.startswith("https://www.reddit.com/r/")): self.current_catalog.extend(self.obj)
-            if "/posts.json?limit=100&page=" in self.current_url:
+            if "/posts.json?limit=100&page=" in self.current_url or any(i.get("Engine", "") == "Danbooru" for i in self.current_catalog):
                 for i in self.current_catalog:
+                    if "Engine" in i and not i["Engine"] == "Danbooru": continue
                     if "id" in i: i.setdefault("ID", i["id"])
                     if "created_at" in i: i.setdefault("Created At", GLib.DateTime.new_from_iso8601(i["created_at"]).to_utc().to_unix())
                     if "source" in i: i.setdefault("Source", i["source"])
                     if "file_url" in i and "large_file_url" in i: i.setdefault("File URL", i["large_file_url"] if i["file_url"].endswith("zip") else i["file_url"])
                     i.setdefault("Tags", [])
                     i["Tags"].extend([tag for it in ("artist", "copyright", "character", "general", "meta") for tag in i.get(f"tag_string_{it}", "").split(" ") if tag])
-                    if "rating" in i: i["Tags"].append(i["rating"])
+                    if "rating" in i and not i["rating"] in i["Tags"]: i["Tags"].append(i["rating"])
                     if "id" in i and i.get("has_children", None): i["Tags"].append(f"parent:{i['id']}")
                     if i.get("parent_id", None): i["Tags"].append(f"parent:{i['parent_id']}")
-                if not len(self.queries) > 1:
+                if "/posts.json?limit=100&page=" in self.current_url and not len(self.queries) > 1:
                     if self.next_page:
                         self.count = (100, self.tab.get_child().total)
                     elif self.page == 1 and 100 > len(self.current_catalog):
@@ -2581,8 +2620,8 @@ class Extractor(GObject.Object):
                 i.setdefault("Created At", i["time"])
                 if "filename" in i or "spoiler" in i:
                     i.setdefault("Tags", [])
-                    i["Tags"].append(i["filename"] + i["ext"])
-                    i["Tags"].append(str(i["tim"]) + i["ext"])
+                    if "filename" in i: i["Tags"].append(i["filename"] + i["ext"])
+                    if "ext" in i: i["Tags"].append(str(i["tim"]) + i["ext"])
                     if i.get("spoiler", 0) == 1: i["Tags"].append("spoiler")
                 if i.get("embed", ""): i.setdefault("File URL", i.get("embed", "").split('href="', 1)[-1].split('"', 1)[0])
                 i.setdefault("File URL", f"https://i.4cdn.org/{board}/{i['tim']}{i['ext']}" if "tim" in i and "ext" in i else "")
