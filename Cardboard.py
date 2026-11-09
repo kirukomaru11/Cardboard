@@ -1935,6 +1935,12 @@ class Suggestion(ListObject):
     label = GObject.Property(type=str)
     value = GObject.Property(type=str)
 
+class SearchAutocompleteItem(ListItem):
+    def __init__(self): super().__init__(child=Gtk.Label(use_markup=True, xalign=0))
+
+    def bind(self):
+        self.bindings = [self.item.bind_property("label", self.get_child(), "label", DEFAULT_BIND)]
+
 class Search(Gtk.Box):
     autocomplete_site = "Danbooru"
     cache = OrderedDict()
@@ -1953,14 +1959,7 @@ class Search(Gtk.Box):
         for i in (self.query, page_query): self.append(i)
         self.prepend(Gtk.Picture(opacity=0, paintable=Gtk.WidgetPaintable.new(page_query)))
         self.bind_property("page", page_query, "text", SYNC_BIND, str_bind, self.__class__.page_bind)
-        self.autocomplete = Autocomplete(self.query, model=List(Suggestion), bind=self.__class__.bind, setup=self.__class__.setup, text_activate=self.__class__.text_activate, row_activate=self.__class__.row_activate, select=self.__class__.select, complete=self.__class__.complete)
-
-    @staticmethod
-    def setup(f, l): l.set_child(Gtk.Label(use_markup=True, xalign=0))
-
-    @staticmethod
-    def bind(f, l):
-        l.get_child().bindings = [l.get_property("item").bind_property("label", l.get_child(), "label", DEFAULT_BIND)]
+        self.autocomplete = Autocomplete(self.query, model=List(Suggestion), factory=SearchAutocompleteItem.factory, text_activate=self.__class__.text_activate, row_activate=self.__class__.row_activate, select=self.__class__.select, complete=self.__class__.complete)
 
     @staticmethod
     def text_activate(text, autocomplete, s):
@@ -1999,7 +1998,7 @@ class Search(Gtk.Box):
         if not text.get_text() or not self.boards.get_selected().search_autocomplete: return
         q = str(self.get_current_word())
         board = self.boards.get_selected()
-        if is_online(q) or "http://" in q or "https://" in q: return
+        if is_online(q) or "http://" in q or "https://" in q or (q.startswith(("/", "file://")) and board.engine != "Cardboard"): return
         elif q.startswith(("/", "file://")) and board.engine == "Cardboard":
             q = uri_decode(q) if q.startswith("file://") else q
             self.do_complete([{"label": GLib.markup_escape_text(basename(i)), "value": uri_encode(i.rstrip("/") or "/")} for i in Search.completer.get_completions(q)])
