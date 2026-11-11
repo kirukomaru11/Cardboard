@@ -674,7 +674,7 @@ class PostData(Gtk.Overlay):
             App.default.data.update(table="Posts", column="Board", value=value, conditions="Board = ? AND ID = ?", conds=(old, self.id))
         self._board = value
 
-    @GObject.Property(type=str, default="Example")
+    @GObject.Property(nick="ID", type=str, default="Example")
     def id(self): return getattr(self, "_id", "")
 
     @id.setter
@@ -693,7 +693,7 @@ class PostData(Gtk.Overlay):
     notes = GObject.Property(type=str)
     added = GObject.Property(type=GLib.DateTime)
     created_at = GObject.Property(type=GLib.DateTime)
-    file_url = GObject.Property(type=str)
+    file_url = GObject.Property(nick="File URL", type=str)
 
     def __init__(self, post={}, **kwargs):
         super().__init__(**kwargs)
@@ -1120,6 +1120,9 @@ class PostEditor(PopupDialog):
     def get_all(): return [i for i in PopupDialog.get_all() if isinstance(i, PostEditor)]
 
 class Post(PostData):
+    properties = ["board", "id", "added", "created_at", "file_url", "source", "notes", "tags"]
+    properties_extra = {"Tags": "DEFAULT \"[]\""}
+
     before = GObject.Property(type=Adw.Bin)
     preview = GObject.Property(type=Gdk.Paintable)
     full = GObject.Property(type=Gdk.Paintable)
@@ -1669,33 +1672,22 @@ class Chapter(ListObject):
     subtitle = GObject.Property(type=str)
     url = GObject.Property(type=str)
 
-    @staticmethod
-    def setup(f, l):
+class ChapterItem(ListItem):
+    parent_options = {"halign": Gtk.Align.CENTER}
+    def __init__(self):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, name="")
         box.bind_property("name", box, "sensitive", DEFAULT_BIND, bool_bind)
         for _ in range(2):
             label = Gtk.Label(vexpand=True, use_markup=True, single_line_mode=True, ellipsize=Pango.EllipsizeMode.END)
             label.bind_property("label", label, "visible", DEFAULT_BIND, bool_bind)
             box.append(label)
-        l.set_child(box)
+        super().__init__(child=box)
 
-    @staticmethod
-    def bind(f, l):
-        l.binds = []
-        box = l.get_child()
-        l.binds.append(l.get_property("item").bind_property("url", box, "name", DEFAULT_BIND))
-        l.binds.append(l.get_property("item").bind_property("title", box.get_first_child(), "label", DEFAULT_BIND))
-        l.binds.append(l.get_property("item").bind_property("subtitle", box.get_last_child(), "label", DEFAULT_BIND))
-        Task.invoke(box.get_parent().set_halign, Gtk.Align.CENTER)
-
-    @staticmethod
-    def unbind(f, l):
-        if hasattr(l, "binds"):
-            for i in l.binds: i.unbind()
-            del l.binds
-
-    @staticmethod
-    def teardown(f, l): l.set_child(None)
+    def bind(self):
+        box = self.get_child()
+        self.bindings.append(self.item.bind_property("url", box, "name", DEFAULT_BIND))
+        self.bindings.append(self.item.bind_property("title", box.get_first_child(), "label", DEFAULT_BIND))
+        self.bindings.append(self.item.bind_property("subtitle", box.get_last_child(), "label", DEFAULT_BIND))
 
 class Chapters(Adw.Bin):
     model = GObject.Property(type=List)
@@ -1715,14 +1707,8 @@ class Chapters(Adw.Bin):
         self.count = data
         overlay.add_overlay(Adw.StatusPage(icon_name="edit-find-symbolic", title="No Results"))
         l.get_model().bind_property("n-items", overlay.get_last_child(), "visible", DEFAULT_BIND, invert_bool_bind)
-        if not hasattr(Chapter, "factory"):
-            factory = Chapter.factory = Gtk.SignalListItemFactory.new()
-            factory.connect("setup", Chapter.setup)
-            factory.connect("bind", Chapter.bind)
-            factory.connect("unbind", Chapter.unbind)
-            factory.connect("teardown", Chapter.teardown)
         l.connect("activate", self.__class__.activate)
-        l.set_factory(Chapter.factory)
+        l.set_factory(ChapterItem.factory)
         self.bind_property("model", l.get_model().get_model(), "model", DEFAULT_BIND)
         self.model = List(Chapter, list=chapters if chapters else [])
 
@@ -1751,7 +1737,7 @@ class Board(ListObject):
 
     @name.setter
     def name(self, value):
-        old_name = self.name
+        old_name = self.name if hasattr(self, "_name") else False
         self._name = value
         if old_name:
             if not self in Boards.list.default.get_model(): return
@@ -1778,8 +1764,10 @@ class Board(ListObject):
             Tab.idle_save_all()
             Task.invoke(Boards.list.default.get_model().do_dict)
 
+    properties = ["id", "name", "engine", "url", "append_to_search", "search_autocomplete", "launch_sources", "download_favorites", "download_thumbnails"]
+
     engine = GObject.Property(type=str, default="Cardboard")
-    url = GObject.Property(type=str)
+    url = GObject.Property(nick="URL", type=str)
     append_to_search = GObject.Property(type=str, nick="Append to Search")
     search_autocomplete = GObject.Property(type=bool, default=True)
     launch_sources = GObject.Property(type=bool, default=False)
@@ -1795,32 +1783,17 @@ class Board(ListObject):
         p = p.get_nick() or name.title().replace("_", " ")
         App.default.data.update(table=self.__class__.__name__ + "s", column=p, value=v, conditions="Name = ?", conds=(self.name,))
 
-    @staticmethod
-    def setup(f, l): l.set_child(Gtk.Label(xalign=0))
-
-    @staticmethod
-    def bind(f, l):
-        if not l.get_child(): return
-        l.get_child().bindings = [l.get_property("item").bind_property("name", l.get_child(), "label", DEFAULT_BIND)]
-
-    @staticmethod
-    def unbind(f, l):
-        for i in getattr(l.get_child(), "bindings", []): i.unbind()
-        if hasattr(l.get_child(), "bindings"): del l.get_child().bindings
-
-    @staticmethod
-    def teardown(f, l): l.set_child(None)
-
     def new(*_):
         name = unique_name("New Board", Boards.list.default.get_model())
         App.default.data.new(table="Boards", values=(name,), names=("Name",))
         Boards.list.default.get_model().add(App.default.data.read(table="Boards", conds=(name,), conditions="Name = ?", return_dict=True))
 
-    factory = Gtk.SignalListItemFactory.new()
-    factory.connect("setup", setup)
-    factory.connect("bind", bind)
-    factory.connect("unbind", unbind)
-    factory.connect("teardown", teardown)
+class BoardItem(ListItem):
+    parent_options = False
+    def __init__(self): super().__init__(child=Gtk.Label(xalign=0))
+
+    def bind(self):
+        self.bindings = [self.item.bind_property("name", self.get_child(), "label", DEFAULT_BIND)]
 
 class BoardsMeta(type(Gtk.Popover)):
     def __iter__(*_):
@@ -1835,7 +1808,7 @@ class Boards(Gtk.Popover, metaclass=BoardsMeta):
         super().__init__(autohide=False, has_arrow=False, child=box)
         self.model = Gtk.SingleSelection(autoselect=True, can_unselect=False)
         self.bind_property("list", self.model, "model", DEFAULT_BIND)
-        listview = Gtk.ListView(model=self.model, factory=Board.factory)
+        listview = Gtk.ListView(model=self.model, factory=BoardItem.factory)
         listview.set_css_classes(["navigation-sidebar"])
         listview.connect("activate", self.__class__.row_activate)
         box.append(Gtk.ScrolledWindow(propagate_natural_height=True, propagate_natural_width=True, child=listview))
@@ -2002,7 +1975,10 @@ class Search(Gtk.Box):
         elif q.startswith(("/", "file://")) and board.engine == "Cardboard":
             q = uri_decode(q) if q.startswith("file://") else q
             self.do_complete([{"label": GLib.markup_escape_text(basename(i)), "value": uri_encode(i.rstrip("/") or "/")} for i in Search.completer.get_completions(q)])
-        elif q.startswith(("regex", "-regex")) and board.engine == "Cardboard": self.do_complete([{"label": PostData.prop_get_title(i), "value": (("regex" if q.startswith("r") else "-regex") + "_" + i + ":")} for i in PostData.default_names])
+        elif q.startswith(("regex", "-regex")) and board.engine == "Cardboard":
+            l = [{"label": PostData.prop_get_title(i), "value": (("regex" if q.startswith("r") else "-regex") + "_" + i + ":")} for i in PostData.default_names]
+            l = [i for i in l if i["value"].startswith(q)]
+            self.do_complete(l)
         elif q.startswith("order:") and board.engine == "Cardboard":
             l = [{"label": "Random", "value": "order:random"}]
             for i in PostData.default_names:
@@ -2010,7 +1986,10 @@ class Search(Gtk.Box):
                 l.append({"label": PostData.prop_get_title(i) + " <b>Ascending</b>", "value": "order:" + i + "_asc"})
             l = [i for i in l if i["value"].startswith(q)]
             self.do_complete(l)
-        elif q.startswith(("board:", "-board:")) and board.engine == "Cardboard": self.do_complete([{"label": GLib.markup_escape_text(i.name), "value": ("board:" if q.startswith("b") else "-board:") + i.name.replace(" ", "_")} for i in Boards])
+        elif q.startswith(("board:", "-board:")) and board.engine == "Cardboard":
+            l = [{"label": GLib.markup_escape_text(i.name), "value": ("board:" if q.startswith("b") else "-board:") + i.name.replace(" ", "_")} for i in Boards]
+            l = [i for i in l if i["value"].startswith(q)]
+            self.do_complete(l)
         else:
             self.add_css_class("searching")
             Task(self.do_complete, q).start()
@@ -2664,7 +2643,7 @@ class Extractor(GObject.Object):
                     i.setdefault("Source", f"{base_url}/res/{i['no'] if i['resto'] == 0 else i['resto']}.html")
 
     def cardboard(self):
-        q = getattr(Boards.list.default.get_model()[self.board], "url", "") + " " + " ".join(tuple(i for i in self.current_query.split(" ") if not i.lower().startswith("order:"))) + " " + getattr(Boards.list.default.get_model()[self.board], "append_to_search", "")
+        q = (getattr(Boards.list.default.get_model()[self.board], "url", None) or "") + " " + " ".join(tuple(i for i in self.current_query.split(" ") if not i.lower().startswith("order:"))) + " " + (getattr(Boards.list.default.get_model()[self.board], "append_to_search", None) or "")
         q = q.strip()
         sort = tuple(i for i in self.current_query.split(" ") if i.lower().startswith("order:"))
         sort = sort[0].lower().split(":")[1] if sort else "Added"
@@ -2837,11 +2816,11 @@ class Extractor(GObject.Object):
             else:
                 if not is_online(self.current_query):
                     self.current_query = GLib.Uri.escape_string(self.current_query)
-                self.current_url = f'https://app-api.pixiv.net/v1/search/illust?word={self.current_query.split("/search?q=")[-1].split("/tags/")[-1].split("&")[0].split("/")[0]}' + (bd.url if bd.engine == self.engine else "").split("://", 1)[-1].rsplit("/", 1)[-1]
+                self.current_url = f'https://app-api.pixiv.net/v1/search/illust?word={self.current_query.split("/search?q=")[-1].split("/tags/")[-1].split("&")[0].split("/")[0]}' + ((bd.url or "") if bd.engine == self.engine else "").split("://", 1)[-1].rsplit("/", 1)[-1]
             if self.page > 1:
                 self.current_url += f"&offset={30 * (self.page - 1)}"
             if self.engine == bd.engine:
-                self.current_url += bd.append_to_search
+                self.current_url += (bd.append_to_search or "")
         if self.current_query.replace("www.", "").replace("api.", "").startswith("https://mangadex.org") or self.engine == "MangaDex" and not is_online(self.current_query):
             self.engine = "MangaDex"
             if "/title/" in self.current_query:
@@ -2858,10 +2837,10 @@ class Extractor(GObject.Object):
                     q = GLib.Uri.escape_string(q)
                 if "id:" in q or "/title/" in q and not q.endswith("/"):
                     q = "$&ids[]=" + q.split(":")[-1].split("/title/", 1)[-1]
-                q += (bd.url if bd.engine == self.engine else "").split("://", 1)[-1].rsplit("/", 1)[-1]
+                q += ((bd.url or "") if bd.engine == self.engine else "").split("://", 1)[-1].rsplit("/", 1)[-1]
                 self.current_url = "https://api.mangadex.org/manga?includes[]=cover_art&limit=100&offset=" + str((self.page - 1) * 100 if self.page > 1 else 0) + ((q.strip('$') if q.startswith('$') else '&title=\'' + q + '\'') if q else '')
             if self.engine == bd.engine:
-                self.current_url += bd.append_to_search
+                self.current_url += (bd.append_to_search or "")
             else:
                 try:
                     global MANGADEX_RATINGS
@@ -2899,7 +2878,7 @@ class Extractor(GObject.Object):
         else:
             if self.engine in ("Danbooru", "Gelbooru", "Moebooru", "FoolFuuka", "vichan"): self.url_from_query(self.current_query, url)
             if self.engine == bd.engine:
-                self.current_url += bd.append_to_search
+                self.current_url += (bd.append_to_search or "")
             self.current_url = self.current_url.replace("= ", "=")
         self.current_query = self.current_query if self.engine == bd.engine else original_query
         self.board = self.board if Boards.list.default.get_model()[self.board] else Boards.list.default.get_model()[0].name
@@ -3136,12 +3115,10 @@ toolbarview.overview { transition: background 0.4s ease; }
 .colored controls.toolbar.card { background: color-mix(in srgb, var(--color-3), transparent 60%); }
 .colored toolbarview.overview { background: none; }"""
 
-DATA_INIT = """
-CREATE TABLE IF NOT EXISTS Boards (ID INTEGER, Name TEXT NOT NULL UNIQUE, Engine TEXT NOT NULL DEFAULT 'Cardboard', URL TEXT DEFAULT '', 'Append to Search' TEXT DEFAULT '', 'Search Autocomplete' INTEGER NOT NULL DEFAULT 1, 'Launch Sources' INTEGER NOT NULL DEFAULT 0, 'Download Favorites' INTEGER NOT NULL DEFAULT 0, 'Download Thumbnails' INTEGER NOT NULL DEFAULT 0);
-CREATE TABLE IF NOT EXISTS Posts (Board TEXT NOT NULL DEFAULT 'Favorites', ID TEXT NOT NULL, Added INTEGER NOT NULL DEFAULT (unixepoch()), 'Created At' INTEGER NOT NULL DEFAULT (unixepoch()), 'File URL' TEXT DEFAULT '', Source TEXT DEFAULT '', Notes TEXT DEFAULT '', Tags TEXT NOT NULL DEFAULT '[]', UNIQUE ('Board', 'ID'), FOREIGN KEY (Board) REFERENCES Boards(Name) ON DELETE CASCADE ON UPDATE CASCADE);
+DATA_INIT = (Board, Post, """
 CREATE TABLE IF NOT EXISTS Tabs (Window INTEGER NOT NULL DEFAULT 1, TabView INTEGER NOT NULL DEFAULT 1, ID INTEGER, Query TEXT DEFAULT '', Page INTEGER NOT NULL DEFAULT 1, Board TEXT NOT NULL DEFAULT 'Favorites', UNIQUE ('Window', 'TabView', 'ID'), FOREIGN KEY (Board) REFERENCES Boards(Name) ON DELETE CASCADE ON UPDATE CASCADE, FOREIGN KEY (Window) REFERENCES Windows(ID) ON DELETE CASCADE ON UPDATE CASCADE);
 CREATE TABLE IF NOT EXISTS Windows (ID INTEGER PRIMARY KEY AUTOINCREMENT, 'Manga Width' INTEGER NOT NULL DEFAULT 500, 'Default Width' INTEGER NOT NULL DEFAULT 360, 'Default Height' INTEGER NOT NULL DEFAULT 760, 'Fullscreen' INTEGER NOT NULL DEFAULT 0, 'Second View' INTEGER NOT NULL DEFAULT 1, Maximized INTEGER NOT NULL DEFAULT 0);
-"""
+""")
 
 def main():
     App(info=INFO,
