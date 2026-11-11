@@ -1121,7 +1121,7 @@ class PostEditor(PopupDialog):
 
 class Post(PostData):
     properties = ["board", "id", "added", "created_at", "file_url", "source", "notes", "tags"]
-    properties_extra = {"Tags": "DEFAULT \"[]\""}
+    properties_extra = {"Tags": "DEFAULT \"[]\"", "Added": "INTEGER", "Created At": "INTEGER"}
 
     before = GObject.Property(type=Adw.Bin)
     preview = GObject.Property(type=Gdk.Paintable)
