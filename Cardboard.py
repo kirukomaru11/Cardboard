@@ -271,7 +271,7 @@ class Window(Window):
                             if w.preview: w.finish_func(w.preview, w.media)
                             else:
                                 w.media.picture.set_paintable(Adw.SpinnerPaintable.new(w))
-                                w.task = Post.start_task(w.media, w.get_preview_uri())
+                                w.task = Post.start_task(w.media, w.preview_uri)
             elif w.source and w.read_board("Launch Sources"): launch(w.source)
             elif not any(w in i.posts for i in PostEditor.get_all() if i.posts): w.toggle_favorite()
         elif b == 2: Context.action(post=w, action="Open in New Tab")
@@ -296,7 +296,7 @@ class Window(Window):
             if isinstance(w, Post):
                 me["Open"].extend(["Open Source", "Open File URL"])
                 me["Launch"].extend(["Launch Source", "Launch File URL"])
-                me["Rest"].extend(["Unfavorite" if w.exists() else "Favorite", "Properties"])
+                me["Rest"].extend(["Unfavorite" if w.exists else "Favorite", "Properties"])
                 if w.uri.startswith("file://"): me["Copy"].append("Copy File")
                 me["Copy"].extend(["Copy Source", "Copy File URL"])
             else: me["Launch"].append("Launch Source")
@@ -337,7 +337,7 @@ class Window(Window):
             if w.media and isinstance(w.media.picture, Picture) and any(i.get_mapped() for i in w.media.picture.get_parent() if isinstance(i, Gtk.Scrollbar)):
                 w = None
                 e.v = []
-            if w and w.get_file() and exists(w.get_file()): e.v.append(Gdk.FileList.new_from_list((Gio.File.new_for_uri(w.get_file()),)))
+            if w and w.file and exists(w.file): e.v.append(Gdk.FileList.new_from_list((Gio.File.new_for_uri(w.file),)))
             elif hasattr(w, "file_url") and "://" in w.file_url: e.v.append(Gdk.FileList.new_from_list((Gio.File.new_for_uri(w.file_url),)))
         if hasattr(w, "get_paintable") and w.get_paintable() and not isinstance(w.get_paintable(), Adw.SpinnerPaintable):
             e.v.insert(0, w.get_paintable())
@@ -404,7 +404,7 @@ class Tab(Adw.Bin):
             if q[n] == False:
                 q[n] = i
         if current_tab and isinstance(current_tab.get_child(), Post) and (query == False or query == current_tab.get_current_query()[0]):
-            q[0] = current_tab.get_child().get_dict()
+            q[0] = current_tab.get_child().dict
             self.history = [q]
             self.load(paintable=current_tab.get_child().get_paintable())
         else:
@@ -666,10 +666,10 @@ class PostData(Gtk.Overlay):
 
     @board.setter
     def board(self, value):
-        old = self.board
+        old = self.board if hasattr(self, "_board") else None
         if old == value: return
-        if old and self.exists():
-            if PostData.exists({"Board": value, "ID": self.id}):
+        if old != None and self.exists:
+            if PostData.do_exists({"Board": value, "ID": self.id}):
                 Toast(f"post {self.id} ({value}) already exists")
                 return
             App.default.data.update(table="Posts", column="Board", value=value, conditions="Board = ? AND ID = ?", conds=(old, self.id))
@@ -680,10 +680,10 @@ class PostData(Gtk.Overlay):
 
     @id.setter
     def id(self, value):
-        old = self.id
+        old = self.id if hasattr(self, "_id") else None
         if old == value: return
-        if old and self.exists():
-            if PostData.exists({"Board": self.board, "ID": value}):
+        if old != None and self.exists:
+            if PostData.do_exists({"Board": self.board, "ID": value}):
                 Toast(f"post {value} ({self.board}) already exists")
                 return
             App.default.data.update(table="Posts", column="ID", value=value, conditions="Board = ? AND ID = ?", conds=(self.board, old))
@@ -710,38 +710,54 @@ class PostData(Gtk.Overlay):
             if i.name in ("board", "id"): continue
             self.connect(f"notify::{i.name}", self.__class__.changed)
 
-    def exists(self):
+    def do_exists(self):
         if isinstance(self, PostData):
             b, i = self.board, self.id
         else:
             b, i = self.get("Board", "Favorites"), self.get("ID", "Example")
         return App.default.data.exists(table="Posts", conditions="Board = ? AND ID = ?", conds=(b, i))
 
-    def toggle_favorite(self):
+    @property
+    def exists(self): return PostData.do_exists(self)
+
+    def favorite(self, e=None):
         for i in ("removing", "adding"): self.remove_css_class(i)
-        e = self.exists()
-        if e: App.default.data.delete(table="Posts", conditions="Board = ? AND ID = ?", conds=(self.board, self.id))
-        else:
-            o = self.get_dict()
-            App.default.data.new(table="Posts", values=tuple(o.values()), names=o.keys())
-            if self.read_board("Download Favorites"): Task.invoke(self.download, True)
-        Task.invoke(self.add_css_class, "removing" if e else "adding")
+        e = e if e != None else self.exists
+        if e: return
+        Task.invoke(self.add_css_class, "adding")
+        o = self.dict
+        App.default.data.new(table="Posts", values=tuple(o.values()), names=o.keys())
+        if self.read_board("Download Favorites"): Task.invoke(self.download, True)
         GLib.timeout_add((GLib.TIME_SPAN_SECOND * 2) / 1000, self.set_styles)
 
-    def get_dict(self): return dict((i, Gtk.Overlay.get_property(self, v.name)) for i, v in PostData.default_titles.items())
+    def unfavorite(self):
+        for i in ("removing", "adding"): self.remove_css_class(i)
+        App.default.data.delete(table="Posts", conditions="Board = ? AND ID = ?", conds=(self.board, self.id))
+        Task.invoke(self.add_css_class, "removing")
+        GLib.timeout_add((GLib.TIME_SPAN_SECOND * 2) / 1000, self.set_styles)
 
-    def get_file(self): return self.file_url if self.file_url.startswith("file://") else ("file://" + Path(App.default.data_folder.peek_path(), self.board, self.id))
+    def toggle_favorite(self):
+        e = self.exists
+        if e: self.unfavorite()
+        else: self.favorite(e)
+
+    @property
+    def dict(self): return dict((i, Gtk.Overlay.get_property(self, v.name)) for i, v in PostData.default_titles.items())
+
+    @property
+    def file(self): return self.file_url if self.file_url.startswith("file://") else ("file://" + Path(App.default.data_folder.peek_path(), self.board, self.id))
 
     def get_preview_file(self):
         p = self.get_preview_url()
-        return self.get_file() if not p else p if p.startswith("file://") else ("file://" + Path(App.default.data_folder.peek_path(), self.board, f"p-{self.id}"))
+        return self.file if not p else p if p.startswith("file://") else ("file://" + Path(App.default.data_folder.peek_path(), self.board, f"p-{self.id}"))
 
     def get_uri(self):
-        file = self.get_file()
+        file = self.file
         return file if exists(file) else self.file_url
 
-    def get_preview_uri(self):
-        file, preview_file, preview_url = self.get_file(), self.get_preview_file(), self.get_preview_url() or self.file_url
+    @property
+    def preview_uri(self):
+        file, preview_file, preview_url = self.file, self.get_preview_file(), self.get_preview_url() or self.file_url
         return preview_file if exists(preview_file) else file if exists(file) else preview_url if preview_url else self.file_url
 
     def get_preview_url(self=""):
@@ -809,7 +825,7 @@ class PostData(Gtk.Overlay):
         if isinstance(self, Post):
             Task.invoke(self.automatic_tags)
             Task.invoke(self.set_styles)
-        if not self.exists(): return
+        if not self.exists: return
         App.default.data.update(table="Posts", column=self.__class__.prop_get_title(p.get_name()), value=GObject.Object.get_property(self, p.get_name()), conditions="Board = ? AND ID = ?", conds=(self.board, self.id))
 
     @staticmethod
@@ -1002,7 +1018,7 @@ class PostEditor(PopupDialog):
         ids = [self.__class__.get_new(i.id, prefix, nprefix, suffix, nsuffix, d) for i in self.posts]
         for n, i in enumerate(self.posts):
             if i.id != ids[n]:
-                if PostData.exists({"Board": i.board, "ID": ids[n]}): return Toast(f"Nothing Done! {ids[n]} ({i.board}) already exists!")
+                if PostData.do_exists({"Board": i.board, "ID": ids[n]}): return Toast(f"Nothing Done! {ids[n]} ({i.board}) already exists!")
         for n, i in enumerate(self.posts):
             i.id = ids[n]
 
@@ -1049,7 +1065,7 @@ class PostEditor(PopupDialog):
         else:
             board = b.get_selected_item().get_string()
             posts = [i for i in self.posts if i.board != board]
-            if any(PostData.exists({"Board": board, "ID": i.id}) for i in posts): return Toast(f"Nothing done! post {i.id} ({board}) already exists")
+            if any(PostData.do_exists({"Board": board, "ID": i.id}) for i in posts): return Toast(f"Nothing done! post {i.id} ({board}) already exists")
             for i in posts:
                 i.board = board
             Task.invoke(self.start)
@@ -1086,7 +1102,7 @@ class PostEditor(PopupDialog):
         if not self or not self.posts: return
         files = []
         for i in self.posts:
-            files.append(i.get_file())
+            files.append(i.file)
             if i.read_board("Download Thumbnails"): files.append(i.get_preview_file())
         if all(exists(i) for i in files): b.set_properties(title="Open", start_icon_name="document-open-symbolic")
         else: b.set_properties(title="Download", start_icon_name="folder-download-symbolic")
@@ -1177,7 +1193,7 @@ class Post(PostData):
             if isinstance(parent, Masonry): parent.add(self)
             elif hasattr(parent, "append"): parent.append(self)
             elif hasattr(parent, "set_child"): parent.set_child(self)
-        self.uri = self.get_uri() if isinstance(self.get_parent(), Tab) else self.get_preview_uri()
+        self.uri = self.get_uri() if isinstance(self.get_parent(), Tab) else self.preview_uri
         if self.get_ancestor(Reply) or self.get_ancestor(Adw.WrapBox): self.set_halign(Gtk.Align.START)
         if self.get_ancestor(Adw.WrapBox): self.set_valign(Gtk.Align.START)
         if self.uri:
@@ -1201,7 +1217,7 @@ class Post(PostData):
             if comment: self.set_child(Comment(comment, {"yalign": 0, "justify": Gtk.Justification.CENTER,}, { "halign": Gtk.Align.CENTER}))
             else: self.set_child(Gtk.Label(label=o["Notes"] if o["Notes"] else f"Post {self.id} ({self.board})\nNo notes or file URL", wrap=True, justify=Gtk.Justification.CENTER))
             self.automatic_tags()
-        if self.exists() and self.read_board("Download Favorites"): Task.invoke(self.download, True)
+        if self.exists and self.read_board("Download Favorites"): Task.invoke(self.download, True)
 
     def do_dispose(self):
         if hasattr(self.full, "pause"): Task.invoke(self.full.pause)
@@ -1252,7 +1268,7 @@ class Post(PostData):
                 if it in i: t.append("game")
         for i in (self.source, self.file_url):
             if "tenor.com/" in i: t.extend(i.strip("/").rsplit("/", 1)[-1].replace(".mp4", "").replace(".gif", "").split("-gif-", 1)[0].split("-"))
-        if self.read_board("Download Thumbnails") and (not self.get_preview_uri() or self.get_preview_uri() == self.get_uri()): t.append("missing_thumbnail")
+        if self.read_board("Download Thumbnails") and (not self.preview_uri or self.preview_uri == self.get_uri()): t.append("missing_thumbnail")
         if "reddit.com/r/" in self.source: t.append(self.source.split("reddit.com", 1)[-1].rsplit("/comments/", 1)[0])
         if "x.com/" in self.source or "twitter.com/" in self.source: t.append(self.source.split("x.com/")[-1].split("twitter.com/")[-1].split("/", 1)[0].lower())
         def do_sort(i):
@@ -1276,24 +1292,23 @@ class Post(PostData):
             if i.startswith("parent:"):
                 if i.replace("parent:", "") == self.id: b.add("parent")
                 else: b.add("child")
-            try: b.add(i)
-            except: print(i, "Failed")
+            b.add(i)
         if hasattr(self.get_paintable(), "duration") and self.get_paintable().duration > 1: b.add("playing")
         if self.get_paintable(): b.add("media")
         else: b.add("not-media")
         if self.get_chapters(): b.add("chapters")
         if self.get_chapter(): b.add("chapter")
         if self.get_thread(): b.add("thread")
-        if self.exists(): b.add("starred")
+        if self.exists: b.add("starred")
         if bool(self.notes): b.add("has-notes")
         if self.get_uri().startswith("file://"): b.add("local")
-        if self.get_preview_uri().startswith("file://"): b.add("local-preview")
+        if self.preview_uri.startswith("file://"): b.add("local-preview")
         if [i for i in self if i.get_css_name() == "replies"]: b.add("has-replies")
         if isinstance(self.get_child(), Gtk.Box): b.add("has-intro")
-        b.add("preview" if self.get_paintable(displaying=True) and self.get_paintable(displaying=True).uri == self.get_preview_uri() else "full")
+        b.add("preview" if self.get_paintable(displaying=True) and self.get_paintable(displaying=True).uri == self.preview_uri else "full")
         b.add(self.board)
         b.add(self.id)
-        Task.invoke(self.set_css_classes, list(b))
+        Task.invoke(self.set_css_classes, tuple(b))
 
     def get_paintable(self, displaying=False):
         if not displaying:
@@ -1316,7 +1331,7 @@ class Post(PostData):
         if isinstance(p, Post):
             if mediastream.uri == p.get_uri():
                 p.full = mediastream
-            if mediastream.uri == p.get_preview_uri():
+            if mediastream.uri == p.preview_uri:
                 p.preview = mediastream
             p.uri = mediastream.uri
             Task.invoke(p.automatic_tags)
@@ -1351,7 +1366,7 @@ class Post(PostData):
         for i in PostEditor.get_all(): PostEditor.map_download(i.download)
 
     def download(self, automatic=False):
-        files = [(self.get_file(), self.file_url)]
+        files = [(self.file, self.file_url)]
         if self.read_board("Download Thumbnails"): files.append((self.get_preview_file(), self.get_preview_url()))
         if all(exists(i[0]) for i in files):
             if automatic: return
@@ -1404,23 +1419,21 @@ class Context(Gtk.PopoverMenu):
                         if not i.media:
                             i.media = Media(zoom=isinstance(i.get_parent(), Tab), overflow=Gtk.Overflow.HIDDEN)
                         i.media.set_property("media-stream", None)
-                        i.task = Post.start_task(i.media, i.get_uri() if isinstance(i.get_parent(), Tab) else i.get_preview_uri())
+                        i.task = Post.start_task(i.media, i.get_uri() if isinstance(i.get_parent(), Tab) else i.preview_uri)
                 if "Toggle Favorite" in action: i.toggle_favorite()
-                elif "Favorite" in action:
-                    if not i.exists(): i.toggle_favorite()
-                elif "Unfavorite" in action:
-                    if i.exists(): i.toggle_favorite()
+                elif "Favorite" in action: i.favorite()
+                elif "Unfavorite" in action: i.unfavorite()
                 if "File URL" in action or "Get" in action and "Source" in action:
                     q = i.file_url if isinstance(i, Post) else i.get_name()
                 elif "Source" in action:
                     q = (i.launch_url if i.launch_url else i.source) if isinstance(i, Post) else i.get_name()
-                elif "Copy File" in action: return Gdk.Display.get_default().get_clipboard().set_content(Gdk.ContentProvider.new_for_value(Gdk.FileList.new_from_list((Gio.File.new_for_uri(post.get_file()),))))
+                elif "Copy File" in action: return Gdk.Display.get_default().get_clipboard().set_content(Gdk.ContentProvider.new_for_value(Gdk.FileList.new_from_list((Gio.File.new_for_uri(post.file),))))
                 elif "Copy Picture" in action:
                     v = Paintable.to_value(post.get_paintable())
                     if v: Gdk.Display.get_default().get_clipboard().set_content(v)
                     return
                 else:
-                    q = i.get_dict() if isinstance(i, Post) else {"File URL": i.get_name()}
+                    q = i.dict if isinstance(i, Post) else {"File URL": i.get_name()}
                 qs.append(q)
                 if "Launch" in action: launch(q)
                 elif "Get" in action and "Source" in action: launch(f"https://saucenao.com/search.php?url={q}")
@@ -1741,7 +1754,7 @@ class Board(ListObject):
     def name(self, value):
         old_name = self.name if hasattr(self, "_name") else False
         self._name = value
-        if old_name:
+        if old_name != False:
             if not self in Boards.list.default.get_model(): return
             App.default.data.update(table=self.__class__.__name__ + "s", column="Name", value=self.name, conditions="Name = ?", conds=(old_name,))
             App.default.data.update(table="Posts", column="Board", value=self.name, conditions="Board = ?", conds=(old_name,))
@@ -3149,7 +3162,7 @@ toolbarview.overview { transition: background 0.4s ease; }
 .colored controls.toolbar.card { background: color-mix(in srgb, var(--color-3), transparent 60%); }
 .colored toolbarview.overview { background: none; }"""
 
-DATA_INIT = (Board, Post, """
+DATA_INIT = (Board, Post, "CREATE INDEX IF NOT EXISTS post_board_id_index ON Posts(\"Board\", \"ID\");", """
 CREATE TABLE IF NOT EXISTS Tabs (Window INTEGER NOT NULL DEFAULT 1, TabView INTEGER NOT NULL DEFAULT 1, ID INTEGER, Query TEXT DEFAULT '', Page INTEGER NOT NULL DEFAULT 1, Board TEXT NOT NULL DEFAULT 'Favorites', UNIQUE ('Window', 'TabView', 'ID'), FOREIGN KEY (Board) REFERENCES Boards(Name) ON DELETE CASCADE ON UPDATE CASCADE, FOREIGN KEY (Window) REFERENCES Windows(ID) ON DELETE CASCADE ON UPDATE CASCADE);
 CREATE TABLE IF NOT EXISTS Windows (ID INTEGER PRIMARY KEY AUTOINCREMENT, 'Manga Width' INTEGER NOT NULL DEFAULT 500, 'Default Width' INTEGER NOT NULL DEFAULT 360, 'Default Height' INTEGER NOT NULL DEFAULT 760, 'Fullscreen' INTEGER NOT NULL DEFAULT 0, 'Second View' INTEGER NOT NULL DEFAULT 1, Maximized INTEGER NOT NULL DEFAULT 0);
 """)
