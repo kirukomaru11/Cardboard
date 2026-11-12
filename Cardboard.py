@@ -10,6 +10,7 @@ except ModuleNotFoundError:
 
 from os import urandom
 from os.path import commonprefix
+from time import sleep
 from re import compile as Regex, DOTALL
 from html import unescape as html_unescape
 from html.parser import HTMLParser
@@ -1182,7 +1183,7 @@ class Post(PostData):
         if self.uri:
             self.media = Media(zoom=isinstance(parent, Tab), vexpand=True, hexpand=True, overflow=Gtk.Overflow.HIDDEN)
             if isinstance(parent, Masonry):
-                if replies: self.add_overlay(Gtk.Label(css_name="replies", halign=Gtk.Align.START, valign=Gtk.Align.START, vexpand=True, label=str(replies)))
+                if replies: self.add_overlay(Gtk.Label(css_classes=["dark-blur-background"], css_name="replies", halign=Gtk.Align.START, valign=Gtk.Align.START, vexpand=True, label=str(replies)))
                 if comment:
                     self.set_child(Gtk.Box(orientation=Gtk.Orientation.VERTICAL))
                     for i in (self.media, Adw.Clamp(css_name="intro", maximum_size=100, orientation=Gtk.Orientation.VERTICAL, child=Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER, max_content_height=150, propagate_natural_height=True, child=Gtk.Viewport(valign=Gtk.Align.CENTER, child=Comment(comment, {"yalign": 0, "justify": Gtk.Justification.CENTER,}, { "halign": Gtk.Align.CENTER}))), valign=Gtk.Align.END)): self.get_child().append(i)
@@ -1196,10 +1197,10 @@ class Post(PostData):
             else:
                 self.task = self.start_task(self.media, self.uri, media_stream_args={"volume": 0.8 if isinstance(parent, Tab) else 0.0})
         else:
+            self.set_styles()
             if comment: self.set_child(Comment(comment, {"yalign": 0, "justify": Gtk.Justification.CENTER,}, { "halign": Gtk.Align.CENTER}))
             else: self.set_child(Gtk.Label(label=o["Notes"] if o["Notes"] else f"Post {self.id} ({self.board})\nNo notes or file URL", wrap=True, justify=Gtk.Justification.CENTER))
-            Task.invoke(self.automatic_tags)
-            Task.invoke(self.set_styles)
+            self.automatic_tags()
         if self.exists() and self.read_board("Download Favorites"): Task.invoke(self.download, True)
 
     def do_dispose(self):
@@ -1268,30 +1269,31 @@ class Post(PostData):
         if not self.source and not "source_request" in self.tags: self.tags.append("source_request")
 
     def set_styles(self):
-        Task.invoke(self.set_css_classes, ["selected"] if "selected" in self.get_css_classes() else [])
+        b = set()
+        if "selected" in self.get_css_classes(): b.add("selected")
         for i in self.tags:
             if not i: continue
             if i.startswith("parent:"):
-                if i.replace("parent:", "") == self.id: Task.invoke(self.add_css_class, "parent")
-                else: Task.invoke(self.add_css_class, "child")
-            try:
-                Task.invoke(self.add_css_class, i)
+                if i.replace("parent:", "") == self.id: b.add("parent")
+                else: b.add("child")
+            try: b.add(i)
             except: print(i, "Failed")
-        if hasattr(self.get_paintable(), "duration") and self.get_paintable().duration > 1: Task.invoke(self.add_css_class, "playing")
-        if self.get_paintable(): Task.invoke(self.add_css_class, "media")
-        else: Task.invoke(self.add_css_class, "not-media")
-        if self.get_chapters(): Task.invoke(self.add_css_class, "chapters")
-        if self.get_chapter(): Task.invoke(self.add_css_class, "chapter")
-        if self.get_thread(): Task.invoke(self.add_css_class, "thread")
-        if self.exists(): Task.invoke(self.add_css_class, "starred")
-        if bool(self.notes): Task.invoke(self.add_css_class, "has-notes")
-        if self.get_uri().startswith("file://"): Task.invoke(self.add_css_class, "local")
-        if self.get_preview_uri().startswith("file://"): Task.invoke(self.add_css_class, "local-preview")
-        if [i for i in self if i.get_css_name() == "replies"]: Task.invoke(self.add_css_class,"has-replies")
-        if isinstance(self.get_child(), Gtk.Box): Task.invoke(self.add_css_class, "has-intro")
-        Task.invoke(self.add_css_class, "preview" if self.get_paintable(displaying=True) and self.get_paintable(displaying=True).uri == self.get_preview_uri() else "full")
-        Task.invoke(self.add_css_class, self.board)
-        Task.invoke(self.add_css_class, self.id)
+        if hasattr(self.get_paintable(), "duration") and self.get_paintable().duration > 1: b.add("playing")
+        if self.get_paintable(): b.add("media")
+        else: b.add("not-media")
+        if self.get_chapters(): b.add("chapters")
+        if self.get_chapter(): b.add("chapter")
+        if self.get_thread(): b.add("thread")
+        if self.exists(): b.add("starred")
+        if bool(self.notes): b.add("has-notes")
+        if self.get_uri().startswith("file://"): b.add("local")
+        if self.get_preview_uri().startswith("file://"): b.add("local-preview")
+        if [i for i in self if i.get_css_name() == "replies"]: b.add("has-replies")
+        if isinstance(self.get_child(), Gtk.Box): b.add("has-intro")
+        b.add("preview" if self.get_paintable(displaying=True) and self.get_paintable(displaying=True).uri == self.get_preview_uri() else "full")
+        b.add(self.board)
+        b.add(self.id)
+        Task.invoke(self.set_css_classes, list(b))
 
     def get_paintable(self, displaying=False):
         if not displaying:
@@ -2454,35 +2456,64 @@ class Extractor(GObject.Object):
                 if "@attributes" in self.obj:
                     self.count = (100, self.obj["@attributes"]["count"])
                 self.current_catalog.extend(self.obj["post"])
-                for i in self.current_catalog:
-                    if False and "owner" in i and i["owner"] == "danbooru":
-                        d = next((i for i in Boards if "https://danbooru.donmai.us" in i.url), False)
-                        if d:
-                            i.setdefault("Board", d.name)
-                            i.setdefault("Engine", "Danbooru")
-                            continue
+                D = next((i for i in Boards if "https://danbooru.donmai.us" in i.url), False)
+                d = []
+                for i in [i for i in self.current_catalog]:
+                    if "owner" in i and i["owner"] == "danbooru":
+                        if D:
+                            self.current_catalog.remove(i)
+                            d.append(i)
                     if "id" in i: i.setdefault("ID", i["id"])
                     if "change" in i: i.setdefault("Created At", i["change"])
                     if "source" in i: i.setdefault("Source", i["source"])
                     if type(i.get("tags", False)) == str:
-                        i.setdefault("Tags", i["tags"].split(" "))
+                        i.setdefault("Tags", html_unescape(i["tags"].split(" ")))
                         if i.get("has_children", False) == "true": i["Tags"].append(f"parent:{i['id']}")
                         p = i.get("parent_id", False)
                         if type(p) == int or (type(p) == str and p.isdigit()):
                             if int(p) > 0: i["Tags"].append(f"parent:{p}")
                     if "file_url" in i and "preview_url" in i: i.setdefault("File URL", i["preview_url"] if i["file_url"].endswith("zip") else i["file_url"])
-                if False and any(i.get("Engine", "") == "Danbooru" for i in self.current_catalog):
-                    d = []
-                    for i in [i for i in self.current_catalog]:
-                        if i.get("Engine", "") == "Danbooru":
-                            self.current_catalog.remove(i)
-                            d.append(i["md5"])
-                        else:
-                            i["Engine"] = "Gelbooru"
-                    for i in range(0, len(d), 2):
-                        t = " or ".join(["md5:"+ it for it in d[i:i+2]])
-                        r = Online.Request(f"https://danbooru.donmai.us/posts.json?limit=100&page=1&tags={t}")
-                        break
+                for i in range(0, len(d), 50):
+                    md5s = dict((it["md5"], it) for it in d[i:i+50])
+                    t = GLib.Uri.escape_string("order:md5_asc md5:" + ",".join(md5s.keys()))
+                    try:
+                        r = Online.Request(f"https://danbooru.donmai.us/posts.json?limit=50&tags={t}")
+                        r = json(r)
+                        for i in [i for i in r]:
+                            if i.get("md5", False):
+                                i["Engine"] = "Danbooru"
+                                i["Board"] = D.name
+                                r.remove(i)
+                                if i["md5"] in md5s: del md5s[i["md5"]]
+                                self.current_catalog.append(i)
+                    except Exception as e:
+                        error = True
+                        self.current_catalog.extend(md5s.values())
+                        print(e)
+                        continue
+                    if len(r) == len(md5s):
+                        its = sorted(md5s.values(), key=md5_sort)
+                        for n, i in enumerate(r):
+                            i["Engine"] = "Danbooru"
+                            i["Board"] = D.name
+                            if not "file_url" in i:
+                                md5 = i["md5"] if "md5" in i else its[n]["md5"]
+                                ext = i["media_asset"]["file_ext"]
+                                if ext == "zip":
+                                    o = "sample"
+                                    ext = "webm"
+                                    prefix = o + "-"
+                                else:
+                                    o = "original"
+                                    prefix = ""
+                                i["md5"] = md5
+                                i["large_file_url"] = i["file_url"] = f"https://cdn.donmai.us/{o}/{md5[:2]}/{md5[2:4]}/{prefix}{md5}.{ext}"
+                            self.current_catalog.append(i)
+                    else: self.current_catalog.extend(md5s.values())
+                md5s = [i["md5"] for i in self.obj["post"]]
+                def f(i): return md5s.index(i["md5"]) if "md5" in i and i["md5"] in md5s else 0
+                self.current_catalog = sorted(self.current_catalog, key=f)
+                self.obj = []
             if "posts" in self.obj and type(self.obj["posts"]) == list: self.current_catalog.extend(self.obj["posts"])
             if "data" in self.obj and type(self.obj["data"]) == list:
                 if "/manga/" in self.current_url:
@@ -2576,7 +2607,9 @@ class Extractor(GObject.Object):
                 for i in self.current_catalog:
                     if "Engine" in i and not i["Engine"] == "Danbooru": continue
                     if "id" in i: i.setdefault("ID", i["id"])
-                    if "created_at" in i: i.setdefault("Created At", GLib.DateTime.new_from_iso8601(i["created_at"]).to_utc().to_unix())
+                    try:
+                        if "created_at" in i: i.setdefault("Created At", GLib.DateTime.new_from_iso8601(i["created_at"]).to_utc().to_unix())
+                    except: pass
                     if "source" in i: i.setdefault("Source", i["source"])
                     if "file_url" in i and "large_file_url" in i: i.setdefault("File URL", i["large_file_url"] if i["file_url"].endswith("zip") else i["file_url"])
                     i.setdefault("Tags", [])
@@ -2958,6 +2991,7 @@ def reopen_tab(*_):
 def mangadex_volume_sort(i): return alphabetical_sort(i.get("attributes", {}).get("volume", 0))
 
 def id_sort(i): return int(i.get("ID", "0") or 0)
+def md5_sort(i): return alphabetical_sort(i["md5"])
 
 ITEM_REGEX = Regex(r"<item>\s*<title>(?P<Title>.*?)</title>\s*<link>(?P<URL>.*?)</link>", DOTALL)
 POST_REGEX = Regex(r'<post\b([^>]*)>(?:.*?</post>)?')
@@ -3051,8 +3085,8 @@ tab > post before { background-size: 8%; }
 post { border-radius: 13px; }
 post.not-media { font-weight: bold; min-height: 200px; font-size: 20px; background: black; color: white; }
 tab > post { border-radius: 0px; }
-post:hover > replies { opacity: 1; backdrop-filter: blur(20px) brightness(0.6); }
-post > replies { color: white; opacity: 0; transition: opacity 0.3s; font-size: 22px; font-weight: bold; border-radius: 0px 0px 10px 0px; padding: 6px 6px 6px 6px; }
+post:hover > replies { opacity: 1; }
+post > replies { opacity: 0; transition: opacity 0.3s; font-size: 22px; font-weight: bold; border-radius: 0px 0px 10px 0px; padding: 6px 6px 6px 6px; }
 post > box > media,
 post > box > media picture { border-radius: 0px; }
 post intro { background: var(--shade-color); padding: 2px; font-size: 20px; }
