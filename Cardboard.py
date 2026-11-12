@@ -3162,7 +3162,7 @@ toolbarview.overview { transition: background 0.4s ease; }
 .colored controls.toolbar.card { background: color-mix(in srgb, var(--color-3), transparent 60%); }
 .colored toolbarview.overview { background: none; }"""
 
-DATA_INIT = (Board, Post, "CREATE INDEX IF NOT EXISTS post_board_id_index ON Posts(\"Board\", \"ID\");", """
+DATA_INIT = (Board, Post, "CREATE INDEX IF NOT EXISTS \"Post Board ID\" ON Posts(\"Board\", \"ID\");", """
 CREATE TABLE IF NOT EXISTS Tabs (Window INTEGER NOT NULL DEFAULT 1, TabView INTEGER NOT NULL DEFAULT 1, ID INTEGER, Query TEXT DEFAULT '', Page INTEGER NOT NULL DEFAULT 1, Board TEXT NOT NULL DEFAULT 'Favorites', UNIQUE ('Window', 'TabView', 'ID'), FOREIGN KEY (Board) REFERENCES Boards(Name) ON DELETE CASCADE ON UPDATE CASCADE, FOREIGN KEY (Window) REFERENCES Windows(ID) ON DELETE CASCADE ON UPDATE CASCADE);
 CREATE TABLE IF NOT EXISTS Windows (ID INTEGER PRIMARY KEY AUTOINCREMENT, 'Manga Width' INTEGER NOT NULL DEFAULT 500, 'Default Width' INTEGER NOT NULL DEFAULT 360, 'Default Height' INTEGER NOT NULL DEFAULT 760, 'Fullscreen' INTEGER NOT NULL DEFAULT 0, 'Second View' INTEGER NOT NULL DEFAULT 1, Maximized INTEGER NOT NULL DEFAULT 0);
 """)
