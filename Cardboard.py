@@ -15,7 +15,6 @@ from re import compile as Regex, DOTALL
 from html import unescape as html_unescape
 from html.parser import HTMLParser
 from collections import OrderedDict
-from ast import literal_eval
 
 from sqlite3 import register_adapter
 def datetime_adapter(d): return d.to_utc().to_unix()
