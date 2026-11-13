@@ -15,6 +15,7 @@ from re import compile as Regex, DOTALL
 from html import unescape as html_unescape
 from html.parser import HTMLParser
 from collections import OrderedDict
+from ast import literal_eval
 
 from sqlite3 import register_adapter
 def datetime_adapter(d): return d.to_utc().to_unix()
@@ -26,7 +27,12 @@ register_adapter(list, json_string)
 register_adapter(tuple, json_string)
 register_adapter(GLib.DateTime, datetime_adapter)
 
-class Window(Window):
+class Window(DataWindow):
+    manga_width = GObject.Property(type=int, default=500)
+    fullscreen = GObject.Property(type=bool, default=False)
+    second_view = GObject.Property(type=bool, default=True)
+    properties = ["manga_width", "fullscreen", "second_view"]
+
     drop_target_gtypes = (Gdk.FileList, Gio.File, Gtk.Label)
     prev_button = GObject.Property(type=Gtk.Button)
     next_button = GObject.Property(type=Gtk.Button)
@@ -36,18 +42,15 @@ class Window(Window):
     narrow = GObject.Property(type=Adw.ToolbarView)
     context_tab = GObject.Property(type=Adw.TabPage)
     context = GObject.Property(type=Gtk.Widget)
-
-    def __init__(self, _id=None, tab=False):
-        super().__init__()
+    def __init__(self, data=None, tab=False):
+        super().__init__(data)
         self.stack = Gtk.Stack()
         self.search = Search()
         self.wide, self.narrow = [Adw.ToolbarView(content=Adw.LayoutSlot.new("stack")) for _ in range(2)]
-        if not _id: App.default.data.set_default(table="Windows", conditions="ID = ?", conds=(self.get_id(),), names=("ID", ), values=(self.get_id(),))
-        elif self.get_id() != _id: App.default.data.update(table="Windows", column="ID", value=self.get_id(), conditions="ID = ?", conds=(_id,))
         self.next_button = Button(icon_name="go-next", tooltip_text="Next", callback=Tab.nav_history, sensitive=False)
         self.prev_button = Button(icon_name="go-previous", tooltip_text="Back", callback=Tab.nav_history, sensitive=False)
         multi = Adw.MultiLayoutView()
-        bookmarks_view, view = tuple(Adw.TabView(menu_model=Tab.context_menu) for _ in range(2))
+        view, bookmarks_view = tuple(View(menu_model=Tab.context_menu, name=str(n + 1)) for n in range(2))
         for i in (view, bookmarks_view): self.stack.add_child(i)
         for i, w in (("stack", self.stack), ("search", self.search), ("start", Gtk.Box()), ("menu", Button(t=Gtk.MenuButton, menu_model=self.__class__.menu, tooltip_text="Menu", icon_name="open-menu"))): multi.set_child(i, w)
         for i in (self.prev_button, self.next_button): multi.get_child("start").append(i)
@@ -55,43 +58,27 @@ class Window(Window):
         narrow_header = Adw.HeaderBar(show_title=False, show_end_title_buttons=False)
         self.wide.add_top_bar(wide_header)
         for i in (Adw.LayoutSlot.new("search"), narrow_header): self.narrow.add_bottom_bar(i)
-        for i in ("Default Width", "Default Height"): App.default.data.persist_action(self, i, 1, "Windows", i, "ID = ?", (self.get_id(),)).bind_property("state", self, i.lower().replace(" ", "-"), SYNC_BIND, unpack_bind, variant_bind)
-        App.default.data.persist_action(self, "Manga Width", 1, "Windows", "Manga Width", "ID = ?", (self.get_id(),))
-        App.default.data.persist_action(self, "Maximized", False, "Windows", "Maximized", "ID = ?", (self.get_id(),)).bind_property("state", self, "maximized", SYNC_BIND, unpack_bind, variant_bind)
-        App.default.data.persist_action(self, "Second View", True, "Windows", "Second View", "ID = ?", (self.get_id(),))
         for i, n in ((self.wide, "wide"), (self.narrow, "narrow")):
             ToolbarFullscreen(i)
             multi.add_layout(Adw.Layout(content=i, name=n))
-        App.default.data.persist_action(self, "Fullscreen", False, "Windows", "Fullscreen", "ID = ?", (self.get_id(),)).connect("notify::state", self.change_fullscreen)
         for i in (wide_header, narrow_header):
             i.pack_start(Adw.LayoutSlot.new("start"))
             i.pack_end(Adw.LayoutSlot.new("menu"))
         wide_header.pack_start(Button(icon_name="tab-new", tooltip_text="New Tab", action_name="app.new-tab"))
-        for i in App.default.data.read(table="Tabs", conditions="Window = ?", conds=(self.get_id(),), return_dict=True, force_tuple=True):
-            try:
-                q = json(i["Query"])
-                if not "File URL" in q:
-                    q = i["Query"]
-            except:
-                q = i["Query"]
-            Tab.create(view=bookmarks_view if i["TabView"] == 2 else view, query=q, page=i["Page"], board=i["Board"])
-        if not tab and not self.stack.get_first_child().get_selected_page(): Tab.create(view=self.stack.get_first_child())
         for i in self.stack:
-            i.bar = Adw.TabBar(autohide=i != bookmarks_view, view=i)
+            i.bar = Adw.TabBar(autohide=i != bookmarks_view, view=i.get_child())
+            i.bar.get_first_child().connect("notify::reveal-child", self.__class__.reveal_tab_bar)
             if i == bookmarks_view:
                 i.bar.get_first_child().bind_property("reveal-child", self.stack.get_first_child().bar, "autohide", INVERT_BIND)
-                self.lookup_action("second-view").bind_property("state", i.bar.get_first_child(), "reveal-child", SYNC_BIND, unpack_bind, variant_bind)
+                self.bind_property("second-view", i.bar.get_first_child(), "reveal-child", SYNC_BIND)
             self.wide.add_top_bar(i.bar)
-            i.overview = Adw.TabOverview(child=multi if i == view else view.overview, enable_new_tab=True, view=i, secondary_menu=Window.menu)
+            i.overview = Adw.TabOverview(child=multi if i == view else view.overview, enable_new_tab=True, view=i.bar.get_view(), secondary_menu=Window.menu)
             i.overview.connect("create-tab", self.__class__.overview_create_tab)
-            tb = Adw.TabButton(view=i)
-            if i == bookmarks_view: self.lookup_action("second-view").bind_property("state", tb, "visible", SYNC_BIND, unpack_bind, variant_bind)
+            tb = Adw.TabButton(view=i.bar.get_view())
+            if i == bookmarks_view: self.bind_property("second-view", tb, "visible", SYNC_BIND)
             tb.connect("clicked", self.__class__.tab_button_clicked)
             narrow_header.pack_start(tb)
             i.set_menu_model(Tab.context_menu)
-            i.connect("notify::selected-page", Tab.changed)
-            i.connect("notify::n-pages", Tab.idle_save_all)
-            i.connect("page-reordered", Tab.idle_save_all)
             i.connect("setup-menu", Tab.setup_menu)
             i.connect("create-window", self.__class__.create)
             i.connect("close-page", Tab.operation)
@@ -101,12 +88,30 @@ class Window(Window):
         self.add_breakpoint(b)
         self.stack.connect("notify::visible-child", self.__class__.child_changed)
         self.__class__.child_changed(self.stack, None)
-        bookmarks_view.bar.get_first_child().connect("notify::reveal-child", self.__class__.reveal_bookmarks_bar)
         self.set_content(self.stack.get_last_child().overview)
+        for i in ("second-view", "fullscreen"):
+            self.add_stateful_actions((i, get_variant(getattr(self, i.replace("-", "_")))))
+            self.bind_property(i, self.lookup_action(i), "state", SYNC_BIND, variant_bind, unpack_bind)
+        self.connect("notify::fullscreen", self.change_fullscreen)
         self.change_fullscreen()
-        Task.invoke(bookmarks_view.bar.get_first_child().set_reveal_child, self.lookup_action("second-view").get_state().unpack())
-        Task.invoke(self.__class__.reveal_bookmarks_bar, bookmarks_view.bar.get_first_child())
+        for v in self.stack:
+            for i in v.restore(Tab):
+                query = i.get("Query", "")
+                if query.startswith("{") and query.endswith("}"):
+                    try:
+                        q = json(query)
+                    except Exception as e:
+                        print("Tab:", query, e)
+                        q = query
+                else:
+                    q = query
+                i["Query"] = q
+                i.setdefault("Page", 1)
+                i.setdefault("Board", "Favorites")
+                Tab.create(view=v, query=i["Query"], page=i["Page"], board=i["Board"])
+        if not tab and not self.stack.get_first_child().get_selected_page(): Tab.create(view=self.stack.get_first_child())
         self.present()
+        Task.invoke(bookmarks_view.bar.get_first_child().set_reveal_child, self.second_view)
 
     @staticmethod
     def on_gesture_drag_drag_begin(e, x, y):
@@ -123,8 +128,8 @@ class Window(Window):
         self = e.get_widget()
         if getattr(self, "drag_begin", False) and getattr(self, "last_drag_value", None):
             px, py = self.last_drag_value
-            v = self.get_root().lookup_action("manga-width").get_state().unpack() + x - px
-            self.get_root().lookup_action("manga-width").set_state(GLib.Variant("i", max(100, v)))
+            v = self.get_root().manga_width + x - px
+            self.get_root().manga_width = max(100, v)
         self.last_drag_value = x, y
 
     @staticmethod
@@ -179,7 +184,12 @@ class Window(Window):
         else: Task.invoke(self.remove_css_class, "small")
 
     @staticmethod
-    def on_map(w): Tab.changed(w.stack.get_visible_child())
+    def on_map(self):
+        self.stack.get_visible_child().page_changed()
+        for i in self.stack: self.__class__.reveal_tab_bar(i.bar.get_first_child())
+
+    @staticmethod
+    def reveal_tab_bar(a, p=None): GLib.timeout_add(280, a.get_ancestor(Adw.TabBar).get_template_child(Adw.TabBar, "scrolled_window").get_hadjustment().set_value, 0)
 
     @staticmethod
     def on_drop_target_drop(e, v, x, y):
@@ -210,13 +220,10 @@ class Window(Window):
         return Gdk.DragAction.COPY
 
     @staticmethod
-    def reveal_bookmarks_bar(a, p=None): GLib.timeout_add(200, a.get_ancestor(Adw.TabBar).get_template_child(Adw.TabBar, "scrolled_window").get_hadjustment().set_value, 0)
-
-    @staticmethod
     def tab_button_clicked(b):
         if not b.get_view().get_n_pages(): Tab.create(view=b.get_view())
-        b.get_view().get_parent().set_visible_child(b.get_view())
-        b.get_view().overview.set_open(not b.get_view().overview.get_open())
+        b.get_view().get_ancestor(Gtk.Stack).set_visible_child(b.get_view().get_parent())
+        b.get_view().get_parent().overview.set_open(not b.get_view().get_parent().overview.get_open())
 
     @staticmethod
     def overview_create_tab(*_): return Tab.create().tab
@@ -250,7 +257,7 @@ class Window(Window):
             Task.invoke(e.reset)
         if isinstance(e, Gtk.GestureClick) and signal == "pressed" or isinstance(e, Gtk.GestureLongPress) and b != 1: return
         if not w or w.get_ancestor(Chapters) or w.get_ancestor(Gtk.Button): return
-        if w.get_ancestor(Adw.TabBar): return self.stack.set_visible_child(w.get_ancestor(Adw.TabBar).get_view())
+        if w.get_ancestor(Adw.TabBar): return self.stack.set_visible_child(w.get_ancestor(Adw.TabBar).get_view().get_parent())
         if w.get_ancestor(Post):
             w = w.get_ancestor(Post)
         if not isinstance(w.get_parent(), Tab) and Gdk.ModifierType.CONTROL_MASK in e.get_current_event_state() and b == 1: return Context.action(post=w, action="Toggle Select")
@@ -374,7 +381,7 @@ class Window(Window):
         for i in s:
             if i == s.get_visible_child(): Task.invoke(i.bar.add_css_class, "visible")
             else: Task.invoke(i.bar.remove_css_class, "visible")
-        if s.get_root(): Task.invoke(Tab.changed, s.get_visible_child())
+        if s.get_root(): Task.invoke(s.get_visible_child().page_changed)
 
     @staticmethod
     def clipboard_read_value(cl, r):
@@ -384,20 +391,35 @@ class Window(Window):
     @staticmethod
     def clipboard_read_text(cl, r): open_files(cl.read_text_finish(r).split("\n"))
 
-class Tab(Adw.Bin):
+class View(DataTabView):
+    def page_changed(self):
+        if not self.get_mapped() or not self.current: return
+        tab = self.current
+        if not tab.history: return
+        if tab.get_child():
+            Task.invoke(tab.sync)
+            Task.invoke(tab.grab_focus)
+        else: Task.invoke(tab.load)
+        for p, w in get_paintables(widgets=True).items():
+            if isinstance(p, MediaStream) and not p.volume > 0.0: Task.invoke(setattr, p, "playing", any(i.get_mapped() for i in w))
+
+class Tab(DataWindowTabViewTab):
     history = GObject.Property(type=object)
     index = GObject.Property(type=int, minimum=0)
-    tab = GObject.Property(type=Adw.TabPage)
     closed = []
 
     context_menu = Menu({"!a": Menu({"New Tab": "new-tab", "New Window": "new-window", "Reopen Closed Tab": "reopen-tab"}), "!b": Menu({"Move to Other View": "context-move-or-fav", "Close Tab": "context-close"})})
 
+    query = GObject.Property(type=str, default="")
+    page = GObject.Property(type=int, minimum=0, default=1)
+    board = GObject.Property(type=str, default="Favorites")
+
+    properties = ["query", "page", "board"]
+
     def __init__(self, view, query, page, board):
-        super().__init__(css_name=self.__class__.__name__.lower(), focusable=True)
         v = view or Window.current.stack.get_visible_child()
         view = view or Window.current.stack.get_first_child()
         current_tab = v.get_selected_page().get_child() if v and v.get_selected_page() else False
-        self.tab = view.add_page(self, current_tab.tab if current_tab else None) if view.get_mapped() else view.append(self)
         q = [query, page, board, ()]
         q2 = current_tab.get_current_query() if current_tab and current_tab.history else ["", 1, "Favorites", ()]
         for n, i in enumerate(q2):
@@ -405,11 +427,14 @@ class Tab(Adw.Bin):
                 q[n] = i
         if current_tab and isinstance(current_tab.get_child(), Post) and (query == False or query == current_tab.get_current_query()[0]):
             q[0] = current_tab.get_child().dict
-            self.history = [q]
-            self.load(paintable=current_tab.get_child().get_paintable())
+            history = [q]
+            load = True
         else:
-            self.history = [q]
-            self.update_title()
+            load = False
+            history = [q]
+        super().__init__(view=view, query=q[0] if type(q[0]) == str else json_string(q[0]), page=q[1], board=q[2], history=history, css_name="tab", focusable=True)
+        if load: self.load(paintable=current_tab.get_child().get_paintable())
+        else: self.update_title()
 
     def get_current_query(self):
         if self.history and len(self.history) > self.index: return self.history[self.index]
@@ -420,6 +445,9 @@ class Tab(Adw.Bin):
             self.history = [self.get_current_query()]
             self.index = 0
         self.history[self.index] = q
+        self.query = q[0] if type(q[0]) == str else json_string(q[0])
+        self.page = q[1]
+        self.board = q[2]
 
     def get_page(self): return self.get_current_query()[1]
 
@@ -506,10 +534,9 @@ class Tab(Adw.Bin):
         if self.get_mapped():
             Task.invoke(self.sync)
             Task.invoke(self.grab_focus)
-        if self.get_mapped(): GLib.timeout_add(200, Tab.idle_save_all)
 
     @staticmethod
-    def create(*_, view=False, query=False, page=False, board=False): return Tab(view if isinstance(view, Adw.TabView) else False, query, page, board)
+    def create(*_, view=False, query=False, page=False, board=False): return Tab(view, query, page, board)
 
     @staticmethod
     def setup_menu(v, t): v.get_root().set_property("context-tab", t)
@@ -526,20 +553,6 @@ class Tab(Adw.Bin):
         tab.load(history=True)
 
     def grab_focus(self): Task.invoke(self.get_child().grab_focus)
-
-    @staticmethod
-    def changed(view, *_):
-        if not view.get_mapped(): return
-        w = view.get_root()
-        if not view.get_selected_page(): return
-        self = view.get_selected_page().get_child()
-        if not self.history: return
-        if self.get_child():
-            Task.invoke(self.sync)
-            Task.invoke(self.grab_focus)
-        else: Task.invoke(self.load)
-        for p, w in get_paintables(widgets=True).items():
-            if isinstance(p, MediaStream) and not p.volume > 0.0: Task.invoke(setattr, p, "playing", any(i.get_mapped() for i in w))
 
     def load(self, history=False, query=False, page=False, board=False, paintable=None, next_page=False):
         self.next_page = next_page
@@ -576,13 +589,13 @@ class Tab(Adw.Bin):
 
     @staticmethod
     def operation(a, b=False, t=False):
-        view = a if isinstance(a, Adw.TabView) else App.default.get_active_window().stack.get_visible_child()
+        view = a if isinstance(a, View) else App.default.get_active_window().stack.get_visible_child()
         if not t:
             t = b if isinstance(b, Adw.TabPage) else view.get_root().context_tab if "context" in a.get_name() else view.get_selected_page()
             t = t.get_child()
         if not t: return
-        view = t.get_ancestor(Adw.TabView)
-        if isinstance(a, Adw.TabView) or isinstance(a, Gio.SimpleAction) and "close-tab" in a.get_name():
+        view = t.get_ancestor(View)
+        if isinstance(a, View) or isinstance(a, Gio.SimpleAction) and "close-tab" in a.get_name():
             Task.invoke(view.close_page, t.tab) if isinstance(a, Gio.SimpleAction) else None
             if t.history and not t.get_current_query() in Tab.closed: Tab.closed.append(t.get_current_query())
             Task.invoke(App.default.lookup_action("reopen-tab").set_enabled, bool(Tab.closed))
@@ -594,24 +607,12 @@ class Tab(Adw.Bin):
                 view.transfer_page(t.tab, nv, nv.get_n_pages())
 
     @staticmethod
-    def idle_save_all(*_): Task.invoke(Tab.get_all, save=True)
-
-    @staticmethod
-    def get_all(save=False):
+    def get_all():
         tabs = []
         for w in App.default.get_windows():
-            if not isinstance(w, Window) or save and not w.get_mapped(): continue
+            if not isinstance(w, Window): continue
             for __id, v in enumerate(w.stack):
-                for ___id, i in enumerate(v.get_pages()):
-                    if save:
-                        i.get_child().data = (w.get_id(), __id, ___id)
-                    tabs.append(i.get_child())
-        if save and Window.current and Window.current.get_mapped():
-            if not all(i.history for i in tabs): return
-            for i in tabs:
-                if i.data[1] == 0 and i.data[2] == 0: App.default.data.delete(table="Tabs", conditions="Window = ?", conds=(i.data[0],))
-                q = i.get_current_query()
-                App.default.data.new(table="Tabs", values=(i.data[0], i.data[1] + 1, i.data[2] + 1, q[0], q[1], q[2]))
+                for ___id, i in enumerate(v.get_pages()):  tabs.append(i.get_child())
         return tabs
 
 class Catalog(Masonry):
@@ -1640,7 +1641,7 @@ class Manga(Gtk.ScrolledWindow):
             self.pages = tuple(f"archive://{f.peek_path()}|{GLib.DIR_SEPARATOR_S}{i}" for i in sorted(zipfile.ZipFile(f.peek_path(), "r").namelist(), key=alphabetical_sort))
         else:
             self.pages = q["File URL"]
-        for i in ("maximum-size", "tightening-threshold"): App.default.get_active_window().lookup_action("manga-width").bind_property("state", clamp, i, DEFAULT_BIND, unpack_bind)
+        for i in ("maximum-size", "tightening-threshold"): App.default.get_active_window().bind_property("manga-width", clamp, i, DEFAULT_BIND)
         super().__init__(css_name=self.__class__.__name__.lower(), focusable=True, child=Gtk.Viewport(child=clamp, vscroll_policy=Gtk.ScrollablePolicy.NATURAL))
         Task.invoke(self.load_pages)
         self.connect("edge-reached", self.__class__.load_pages)
@@ -1777,7 +1778,6 @@ class Board(ListObject):
                         if isinstance(i, Post) and i.board == old_name:
                             i.board = self.name
                     t.update_title()
-            Tab.idle_save_all()
             Task.invoke(Boards.list.default.get_model().do_dict)
 
     properties = ["id", "name", "engine", "url", "append_to_search", "search_autocomplete", "launch_sources", "download_favorites", "download_thumbnails"]
@@ -2966,12 +2966,7 @@ def get_paintables(widgets=False):
     else: return [i for i in paintables if hasattr(i, "uri")]
 
 def open_files(files):
-    if not Window.current:
-        d = App.default.data.read(table="Windows", column="ID", force_tuple=True)
-        if not d:
-            App.default.data.set_default(table="Windows", conditions="ID = '1'", values=(1,), names=("ID",))
-            d = [1]
-        for i in d: Window(i)
+    if not Window.current: Window.restore(new=True)
     t = None
     for i in files: Tab.create(query=(("file://" if not i.startswith(("archive://", "file://", "https://", "http://")) else "") + i) if isinstance(i, str) else i.get_uri(), page=1, board=False)
     return App.default.get_active_window().present()
@@ -3004,7 +2999,6 @@ def reopen_tab(*_):
 
 def mangadex_volume_sort(i): return alphabetical_sort(i.get("attributes", {}).get("volume", 0))
 
-def id_sort(i): return int(i.get("ID", "0") or 0)
 def md5_sort(i): return alphabetical_sort(i["md5"])
 
 ITEM_REGEX = Regex(r"<item>\s*<title>(?P<Title>.*?)</title>\s*<link>(?P<URL>.*?)</link>", DOTALL)
@@ -3163,10 +3157,7 @@ toolbarview.overview { transition: background 0.4s ease; }
 .colored controls.toolbar.card { background: color-mix(in srgb, var(--color-3), transparent 60%); }
 .colored toolbarview.overview { background: none; }"""
 
-DATA_INIT = (Board, Post, """
-CREATE TABLE IF NOT EXISTS Tabs (Window INTEGER NOT NULL DEFAULT 1, TabView INTEGER NOT NULL DEFAULT 1, ID INTEGER, Query TEXT DEFAULT '', Page INTEGER NOT NULL DEFAULT 1, Board TEXT NOT NULL DEFAULT 'Favorites', UNIQUE ('Window', 'TabView', 'ID'), FOREIGN KEY (Board) REFERENCES Boards(Name) ON DELETE CASCADE ON UPDATE CASCADE, FOREIGN KEY (Window) REFERENCES Windows(ID) ON DELETE CASCADE ON UPDATE CASCADE);
-CREATE TABLE IF NOT EXISTS Windows (ID INTEGER PRIMARY KEY AUTOINCREMENT, 'Manga Width' INTEGER NOT NULL DEFAULT 500, 'Default Width' INTEGER NOT NULL DEFAULT 360, 'Default Height' INTEGER NOT NULL DEFAULT 760, 'Fullscreen' INTEGER NOT NULL DEFAULT 0, 'Second View' INTEGER NOT NULL DEFAULT 1, Maximized INTEGER NOT NULL DEFAULT 0);
-""")
+DATA_INIT = (Board, Post, Tab, Window)
 
 def main():
     App(info=INFO,
